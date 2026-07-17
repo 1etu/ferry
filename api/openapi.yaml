@@ -1,0 +1,1509 @@
+openapi: 3.1.0
+info:
+  title: Ferry
+  version: 2.0.0
+  summary: Local-network file transfer between an iPhone and a PC.
+  description: |
+    Contract for the HTTP API served by `Ferry.exe`. The Svelte client is generated from this
+    file (openapi-typescript); the Go server is hand-written and a test asserts that every
+    route registered on the mux appears here and vice versa.
+
+    Roles. Every request is classified by `internal/auth` into one of three principals:
+    - `owner`: the request arrived over the loopback interface (127.0.0.1 or ::1). No credential
+      is required. Only the desktop window, the PC's own browser and the `ferry send` command
+      use this role.
+    - `device`: the request carries a valid `ferry_device` cookie. A device is `pending` until
+      the owner approves it, then `approved`. Revoked devices get 401 and the cookie is cleared.
+    - `none`: anything else. Allowed only on `/api/health`, `/api/session`, `/api/pair`,
+      `/manifest.webmanifest`, and the SPA itself.
+
+    Transport. Plain HTTP on the LAN. The server rejects requests whose `Host` header is not in
+    its allowlist (421, DNS rebinding) and rejects non-GET requests that carry an `Origin`
+    header outside that allowlist (403, CSRF; the cookie is also `SameSite=Lax`). WebKit does
+    not send `Sec-Fetch-*` headers to non-secure origins, so they are not used. JSON bodies
+    are limited to 64 KiB.
+
+    Sealed sessions. On top of HTTP, every approved device holds a sealed session with the PC
+    (`POST /api/seal`: X25519 key exchange, HKDF-salted with the device secret that the QR
+    fragment or the first handshake established). Routes marked with the `sealSession`
+    security scheme require the `X-Ferry-Seal: <sessionId>` header (`?seal=` on the event
+    stream). Upload bodies are XChaCha20-Poly1305 frames and every `name` the server returns
+    to a device is a sealed string (base64url of `nonce(24) || ciphertext`); the owner sees
+    plain names. Downloads (`/api/files/{fileId}/content`) are plain: the phone's download
+    manager saves what it receives. A missing or unknown session is 403 `seal_expired` (the
+    client handshakes again); a rejected handshake proof is 403 `seal_invalid` (re-pair).
+
+    Errors. Every non-2xx response with a body uses the `Error` schema. `code` is stable and
+    machine-readable; `message` is for logs, never shown verbatim to end users. One exception:
+    under `/api/uploads/`, errors that tusd raises itself (409 offset mismatch, 412 bad
+    `Tus-Resumable`, 423 locked, 460, 503 while the server shuts down, 400 for a body cut
+    short) carry tusd's `text/plain` body `ERR_CODE: message`; tus-js-client acts on the
+    status alone. Errors the server raises in its tus hooks and ownership check (400, 404,
+    413, 429, 507) use the `Error` schema.
+servers:
+  - url: http://{host}:{port}
+    variables:
+      host:
+        default: 127.0.0.1
+        description: The PC's `.local` name, its LAN IP, or 127.0.0.1 for the owner view.
+      port:
+        default: "8080"
+tags:
+  - name: session
+  - name: pairing
+  - name: seal
+  - name: devices
+  - name: transfers
+  - name: files
+  - name: uploads
+  - name: events
+  - name: settings
+  - name: update
+  - name: app
+  - name: system
+
+paths:
+  /api/health:
+    get:
+      tags: [system]
+      operationId: getHealth
+      summary: Liveness and identity probe.
+      description: |
+        Unauthenticated. Used by the client to test whether the `.local` origin resolves, by a
+        second `Ferry.exe` process to detect an already running instance, and by the updater's
+        old process to confirm the new one is up.
+      security: []
+      responses:
+        "200":
+          description: Server identity.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+
+  /api/session:
+    get:
+      tags: [session]
+      operationId: getSession
+      summary: Who am I and which UI should load.
+      security: []
+      responses:
+        "200":
+          description: Session for the caller, including anonymous callers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+
+  /api/pair:
+    post:
+      tags: [pairing]
+      operationId: pair
+      summary: Exchange a pairing token or code for a device cookie.
+      description: |
+        Exactly one of `token` (from the QR URL) or `code` (typed by the user) must be given.
+        On success the response sets the `ferry_device` cookie and returns the device. The
+        device is `approved` immediately if the pairing session already produced an approved
+        device (same phone, second browser context); that grace admits exactly one more token
+        redemption within 24 hours and then ends the session. Otherwise the device is `pending`
+        until the owner approves. `hasSecret: true` means the client read the `#s=` fragment of
+        the QR URL and holds the derived device secret; the server then records the same secret
+        for the device and the first `POST /api/seal` must prove it. Without it (code pairing,
+        or a Home Screen app whose captured URL lost the fragment) the first handshake sets the
+        secret (trust on first use). Rate limited to 10 requests per minute per remote IP. Five
+        wrong codes rotate the pairing session. Revoking a device ends the pairing session it
+        came from, so its token cannot be redeemed again.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairRequest"
+      responses:
+        "201":
+          description: Device created. The cookie is set.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: "`ferry_device=<token>; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "404":
+          description: Unknown token or code (`pairing_invalid`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "410":
+          description: The pairing session expired (`pairing_expired`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/pairing:
+    get:
+      tags: [pairing]
+      operationId: getPairing
+      summary: Current pairing session (owner).
+      description: Creates a session if none is active or the active one expired.
+      security:
+        - owner: []
+      responses:
+        "200":
+          description: The active pairing session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pairing"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [pairing]
+      operationId: rotatePairing
+      summary: Replace the pairing session with a new token and code (owner).
+      security:
+        - owner: []
+      responses:
+        "200":
+          description: The new pairing session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pairing"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/devices:
+    get:
+      tags: [devices]
+      operationId: listDevices
+      summary: All known devices (owner).
+      security:
+        - owner: []
+      responses:
+        "200":
+          description: Devices ordered by creation time, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Device"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/devices/{deviceId}/approve:
+    post:
+      tags: [devices]
+      operationId: approveDevice
+      summary: Approve a pending device (owner).
+      description: |
+        Approving an already approved device returns it unchanged. A revoked device is
+        terminal and answers 404 (`not_found`).
+      security:
+        - owner: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "200":
+          description: The approved device.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/devices/{deviceId}:
+    delete:
+      tags: [devices]
+      operationId: revokeDevice
+      summary: Revoke a device (owner) or forget this PC (the device itself).
+      description: |
+        The owner may revoke any device. A device may only delete itself; the response then
+        clears its cookie. Active transfers of the device are canceled.
+      security:
+        - owner: []
+        - deviceCookie: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "204":
+          description: Revoked.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/transfers:
+    get:
+      tags: [transfers]
+      operationId: listTransfers
+      summary: Transfer history and active transfers.
+      description: |
+        A device sees its own transfers; the owner sees all. Newest first. For a device every
+        `name` is sealed with the request's session.
+      security:
+        - owner: []
+        - deviceCookie: []
+          sealSession: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        "200":
+          description: Transfers.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Transfer"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PendingOrForbidden"
+    delete:
+      tags: [transfers]
+      operationId: clearTransfers
+      summary: Remove finished transfers from history.
+      description: Active transfers are kept. A device clears its own history; the owner clears all.
+      security:
+        - owner: []
+        - deviceCookie: []
+      responses:
+        "204":
+          description: Cleared.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PendingOrForbidden"
+
+  /api/transfers/{transferId}:
+    delete:
+      tags: [transfers]
+      operationId: deleteTransfer
+      summary: Cancel an active transfer or remove a finished one from history.
+      description: |
+        Canceling an incoming (phone to PC) transfer terminates the tus upload and deletes the
+        partial file. Canceling an outgoing transfer only marks it canceled; the phone's own
+        download manager is not controllable from the server.
+      security:
+        - owner: []
+        - deviceCookie: []
+      parameters:
+        - $ref: "#/components/parameters/TransferId"
+      responses:
+        "204":
+          description: Canceled or removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PendingOrForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/received/open:
+    post:
+      tags: [transfers]
+      operationId: openReceived
+      summary: Open the received folder in the PC's file manager (owner).
+      description: With `transferId`, the finished file is selected (Explorer `/select,`).
+      security:
+        - owner: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                transferId:
+                  $ref: "#/components/schemas/Id"
+      responses:
+        "204":
+          description: Opened.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/files:
+    get:
+      tags: [files]
+      operationId: listFiles
+      summary: Files the PC offers for download.
+      description: For a device every `name` is sealed with the request's session.
+      security:
+        - owner: []
+        - deviceCookie: []
+          sealSession: []
+      responses:
+        "200":
+          description: Offered files, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OfferedFile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PendingOrForbidden"
+    post:
+      tags: [files]
+      operationId: offerFiles
+      summary: Offer PC files to paired phones (owner).
+      description: |
+        Used by `ferry send <paths...>` (the Send To shortcut) and by the window after a
+        native file picker. Paths must be absolute regular files; directories are rejected.
+        Files are referenced in place, never copied.
+      security:
+        - owner: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OfferRequest"
+      responses:
+        "201":
+          description: The offered files, in request order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OfferedFile"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: A path does not exist or is not a regular file (`file_missing`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/files/pick:
+    post:
+      tags: [files]
+      operationId: pickFiles
+      summary: Open the PC's native file picker and offer the chosen files (owner).
+      description: Blocks until the dialog closes. An empty selection returns an empty array.
+      security:
+        - owner: []
+      responses:
+        "201":
+          description: The offered files.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OfferedFile"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "501":
+          description: No native picker on this platform (`unsupported`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/files/{fileId}:
+    delete:
+      tags: [files]
+      operationId: removeFile
+      summary: Stop offering a file.
+      security:
+        - owner: []
+        - deviceCookie: []
+      parameters:
+        - $ref: "#/components/parameters/FileId"
+      responses:
+        "204":
+          description: Removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PendingOrForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/files/{fileId}/content:
+    get:
+      tags: [files]
+      operationId: downloadFile
+      summary: Download an offered file.
+      description: |
+        Streams the file with `http.ServeContent`: `Accept-Ranges: bytes`, `Content-Length`,
+        `Last-Modified`, a strong `ETag` derived from size and modification time (so `If-Range`
+        resumes only an unchanged file), and full HTTP Range support (206 / 416). The first GET
+        from a device creates an outgoing transfer; progress is the highest byte offset served.
+        HEAD requests and owner requests create no transfer. An unknown `disposition` value
+        is treated as `attachment`.
+        `Content-Disposition` is `attachment` by default so Safari hands the response to its
+        download manager; `inline` is for previewable media the user wants to open in place.
+        The response `Content-Type` comes from the file extension, falling back to
+        `application/octet-stream`. The body is plain, not sealed: the download manager must
+        receive the bytes it saves, and the `filename` in `Content-Disposition` is plain for
+        the same reason. This route needs no `X-Ferry-Seal` header (a link cannot send one).
+      security:
+        - owner: []
+        - deviceCookie: []
+      parameters:
+        - $ref: "#/components/parameters/FileId"
+        - name: disposition
+          in: query
+          schema:
+            type: string
+            enum: [attachment, inline]
+            default: attachment
+        - name: Range
+          in: header
+          required: false
+          schema:
+            type: string
+          example: bytes=0-1048575
+      responses:
+        "200":
+          description: Whole file.
+          headers:
+            Accept-Ranges:
+              schema:
+                type: string
+                const: bytes
+            Content-Disposition:
+              schema:
+                type: string
+              example: attachment; filename="report.pdf"; filename*=UTF-8''report.pdf
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: Requested byte range.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PendingOrForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          description: The file was moved or deleted on the PC after it was offered (`file_missing`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "416":
+          description: Range not satisfiable.
+
+  /api/events:
+    get:
+      tags: [events]
+      operationId: streamEvents
+      summary: Server-Sent Events stream.
+      description: |
+        `text/event-stream`. Opened with `EventSource('/api/events')`; the cookie is sent
+        automatically. The server writes `retry: 2000` first and then one event per change.
+        There is no replay: the client must refetch `/api/transfers` and `/api/files` on every
+        `open`, which makes reconnects trivially correct.
+
+        Event names and `data` payloads (JSON):
+        - `transfer`: a `Transfer` after any change. Progress is throttled to at most four
+          events per second per transfer. `name` is sealed on device streams.
+        - `file`: `{"action":"added"|"removed","file":OfferedFile}`; `file.name` is sealed on
+          device streams.
+        - `device`: `{"action":"requested"|"approved"|"revoked","device":Device}`.
+          A pending device receives only events about itself. `requested` goes to the owner.
+        - `pairing`: a `Pairing` whenever the session rotates (owner only).
+        - `update`: an `UpdateStatus` whenever the updater's state changes (owner only).
+        - `network`: a `Network` after each firewall check (owner only).
+        - `reset`: `{}`; the client must refetch everything.
+
+        An approved device must pass its session id as `?seal=` (`EventSource` cannot set
+        headers); a pending device needs none. A device stream whose session disappears skips
+        events it cannot seal; the client's refetch on the next `open` recovers them.
+        Keep-alive: a comment line (`:` followed by a newline) every 20 seconds.
+        The server allows at most 4 concurrent streams per device and drops the oldest one.
+      security:
+        - owner: []
+        - deviceCookie: []
+          sealSession: []
+      parameters:
+        - name: seal
+          in: query
+          required: false
+          schema:
+            type: string
+          description: The sealed session id, required for approved devices.
+      responses:
+        "200":
+          description: Event stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/uploads/:
+    post:
+      tags: [uploads]
+      operationId: createUpload
+      summary: tus creation (phone to PC).
+      description: |
+        This path and everything below it is served by tusd (`github.com/tus/tusd/v2`) with the
+        core protocol plus the `creation`, `termination`, and `expiration` extensions,
+        `Tus-Resumable: 1.0.0`. The client is tus-js-client with `endpoint: '/api/uploads/'`.
+
+        Every request below carries `X-Ferry-Seal`. `Upload-Length` is the plaintext length and
+        every `Upload-Offset` is a plaintext offset; the PATCH body is a sequence of sealed
+        frames (see the PATCH description), so its `Content-Length` is a little larger than the
+        bytes it adds to the offset.
+
+        Server rules enforced in the pre-create hook:
+        - `Upload-Length` is required; `Upload-Defer-Length` is rejected (400 `invalid_request`).
+        - `Upload-Metadata` must contain `name` (the sealed filename as the same base64url
+          text `Transfer.name` uses; a value that does not open under the session key is
+          400) and `nonce` (16 random bytes as base64url without padding; the upload's frame
+          nonce prefix). Both are metadata values, so tus's own standard base64 wraps them
+          in the header. Optional: `filetype`, `lastModified`.
+        - `Upload-Length` above `maxUploadBytes` returns 413 `too_large`.
+        - If free space on the received volume minus `reserveBytes` and minus the bytes still
+          owed by every live upload is below `Upload-Length`, 507 `no_space`. The same rule is
+          checked before each PATCH (507 keeps the partial upload resumable).
+        - `maxActiveUploadsPerDevice` counts PATCH requests in flight per device; at the limit a
+          creation or a further PATCH is 429 `rate_limited` with `Retry-After: 1`.
+        - The upload id is the transfer id; the `Location` header is `/api/uploads/{id}`.
+
+        Bytes are appended to `<receivedDir>/.incoming/<id>` as they arrive (never buffered).
+        A PATCH whose body is cut off keeps the bytes already written and advances the offset,
+        so the client resumes from `HEAD`'s `Upload-Offset`. When the last byte arrives the file
+        is synced and renamed into `<receivedDir>/<sanitized filename>` (collision suffix ` (2)`,
+        ` (3)`, ...; the name stays within 255 bytes) before the final PATCH response is sent.
+        If the move fails the response is 423 and the next HEAD or PATCH retries it; a finished
+        upload answers HEAD with `Upload-Offset` = `Upload-Length`, so a lost 204 never starts a
+        duplicate. Partial uploads untouched for 7 days are deleted and their transfers marked
+        failed; a complete one is moved into place instead.
+      security:
+        - deviceCookie: []
+          sealSession: []
+      parameters:
+        - $ref: "#/components/parameters/TusResumable"
+        - $ref: "#/components/parameters/SealSession"
+        - name: Upload-Length
+          in: header
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: Upload-Metadata
+          in: header
+          required: true
+          schema:
+            type: string
+          example: name NHJOOF9zZWFsZWRfYmFzZTY0dXJs,nonce M3EyLTd3N0FBQUFBQUFBQUFBQUE,filetype aW1hZ2UvaGVpYw==
+      responses:
+        "201":
+          description: Upload created.
+          headers:
+            Location:
+              schema:
+                type: string
+              example: /api/uploads/01J9ZK0X5S8V7Q2M3N4P5R6T7W
+            Tus-Resumable:
+              schema:
+                type: string
+                const: "1.0.0"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PendingOrForbidden"
+        "413":
+          description: Larger than `maxUploadBytes` (`too_large`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "507":
+          description: Not enough free space (`no_space`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    options:
+      tags: [uploads]
+      operationId: uploadOptions
+      summary: tus capability discovery.
+      description: Same-origin clients never send it; it exists because tusd answers it.
+      security:
+        - deviceCookie: []
+      responses:
+        "204":
+          description: Advertises `Tus-Version`, `Tus-Extension`, `Tus-Max-Size`.
+
+  /api/uploads/{uploadId}:
+    parameters:
+      - $ref: "#/components/parameters/UploadId"
+    head:
+      tags: [uploads]
+      operationId: headUpload
+      summary: tus offset query.
+      security:
+        - deviceCookie: []
+          sealSession: []
+      parameters:
+        - $ref: "#/components/parameters/TusResumable"
+        - $ref: "#/components/parameters/SealSession"
+      responses:
+        "200":
+          description: |
+            Current offset. A finished upload of this device answers `Upload-Offset` =
+            `Upload-Length` (the file is in place); a live upload whose bytes are all there is
+            moved into place during this request first.
+          headers:
+            Upload-Offset:
+              schema:
+                type: integer
+                format: int64
+            Upload-Length:
+              schema:
+                type: integer
+                format: int64
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+        "404":
+          description: Unknown upload, or another device's.
+        "410":
+          description: Expired upload.
+        "423":
+          description: |
+            Another request holds this upload's lock, or the complete upload could not be moved
+            into the received folder yet; retry shortly (tus-js-client retries a 423 here, any
+            other failure would make it start a new upload).
+    patch:
+      tags: [uploads]
+      operationId: patchUpload
+      summary: tus append of sealed frames.
+      description: |
+        The body is a sequence of frames. Frame `i` (counted from the start of the file, so a
+        PATCH at offset `o` starts at `i = o / 1048576`) is `len` (4 bytes big-endian, the
+        plaintext length, at most 1 MiB; only the last frame of the file may be shorter) followed
+        by `XChaCha20-Poly1305(key, nonce16 || i as 8 bytes big-endian, plaintext, aad "ferry-frame")`.
+        The server verifies each frame before writing it, so `Upload-Offset` after any
+        interruption is a multiple of 1 MiB (or the full length). A frame that fails to verify
+        ends the request with tusd's 400 (`ERR_UPLOAD_INTERRUPTED`, text body); the verified
+        prefix is kept and the client treats 400 as final. `Content-Length` must not be used to
+        predict the resulting offset.
+      security:
+        - deviceCookie: []
+          sealSession: []
+      parameters:
+        - $ref: "#/components/parameters/TusResumable"
+        - $ref: "#/components/parameters/SealSession"
+        - name: Upload-Offset
+          in: header
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: Content-Type
+          in: header
+          required: true
+          schema:
+            type: string
+            const: application/offset+octet-stream
+      requestBody:
+        required: true
+        content:
+          application/offset+octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "204":
+          description: |
+            Bytes appended. If this completed the upload, the file is already in place. A PATCH
+            at the end of a finished upload of this device answers 204 with the final offset.
+          headers:
+            Upload-Offset:
+              schema:
+                type: integer
+                format: int64
+        "400":
+          description: A frame failed to authenticate, or the body ended mid-frame (tusd's text body). Final.
+        "404":
+          description: Unknown upload, or another device's (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "`Upload-Offset` mismatch; the client must HEAD and retry."
+        "423":
+          description: |
+            Another request holds this upload's lock (tusd's text body), or the complete upload
+            could not be moved into the received folder yet (`internal`, `Error` schema); retry
+            shortly.
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "507":
+          description: |
+            Free space no longer covers the bytes still owed by live uploads plus `reserveBytes`
+            (`no_space`). The partial upload stays resumable; re-picking the file resumes it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "460":
+          description: Checksum mismatch (unused in v1).
+        "503":
+          description: |
+            The server is shutting down. The bytes received so far are kept and the offset
+            advanced; tus-js-client retries after a `HEAD` once the server is back. The body is
+            tusd's plain text, not the `Error` schema.
+    delete:
+      tags: [uploads]
+      operationId: terminateUpload
+      summary: tus termination; deletes the partial file and marks the transfer canceled.
+      security:
+        - deviceCookie: []
+          sealSession: []
+      parameters:
+        - $ref: "#/components/parameters/TusResumable"
+        - $ref: "#/components/parameters/SealSession"
+      responses:
+        "204":
+          description: Terminated.
+        "404":
+          description: Unknown upload.
+
+  /api/seal:
+    post:
+      tags: [seal]
+      operationId: sealHandshake
+      summary: Open a sealed session (approved device).
+      description: |
+        X25519 key exchange. The client sends its ephemeral public key and, when it holds the
+        device secret, `proof = HMAC-SHA256(secret, "ferry-seal-proof" || clientKey)`. The
+        server answers with its ephemeral public key and
+        `confirm = HMAC-SHA256(key, "ferry-seal-confirm" || serverKey)`, where
+        `key = HKDF-SHA256(X25519(server, client), salt = secret or empty, info = "ferry-seal-v1" || clientKey || serverKey)`.
+        A device without a secret gets one from this handshake:
+        `HKDF-SHA256(shared, salt = empty, info = "ferry-seal-device" || clientKey || serverKey)`,
+        stored by both sides after `confirm` verifies. One live session per device; a new
+        handshake replaces the previous session. Sessions do not survive a server restart.
+        Every base64 value in this exchange is base64url without padding; the byte-level
+        definition of each value is `docs/architecture.md` §8.5.
+      security:
+        - deviceCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SealRequest"
+      responses:
+        "201":
+          description: Session opened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SealResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: |
+            `pending_approval` for a pending device, `forbidden` for the owner, or
+            `seal_invalid` when the proof is wrong or unexpected (the device must pair again).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/settings:
+    get:
+      tags: [settings]
+      operationId: getSettings
+      summary: Settings shown in the window (owner).
+      security:
+        - owner: []
+      responses:
+        "200":
+          description: Current settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    patch:
+      tags: [settings]
+      operationId: patchSettings
+      summary: Change settings (owner).
+      description: |
+        Any subset of fields. `name` is trimmed and must be 1–64 characters. `receivedDir` must
+        be absolute and creatable; applying it restarts the transfer stack in-process (in-flight
+        uploads resume; partial uploads move with the folder when it stays on the same volume
+        and are expired otherwise). `startAtLogin` writes the registry. `checkUpdates` gates
+        the daily check.
+      security:
+        - owner: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettingsPatch"
+      responses:
+        "200":
+          description: The settings after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "501":
+          description: "`startAtLogin` is unsupported on this platform (`unsupported`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/settings/received-dir/pick:
+    post:
+      tags: [settings]
+      operationId: pickReceivedDir
+      summary: Open the PC's folder picker for the received folder (owner).
+      description: Blocks until the dialog closes. Cancel returns the unchanged settings.
+      security:
+        - owner: []
+      responses:
+        "200":
+          description: The settings after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "501":
+          description: No folder picker on this platform (`unsupported`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/update:
+    get:
+      tags: [update]
+      operationId: getUpdate
+      summary: Updater state (owner).
+      security:
+        - owner: []
+      responses:
+        "200":
+          description: Current state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateStatus"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/update/check:
+    post:
+      tags: [update]
+      operationId: checkUpdate
+      summary: Check GitHub Releases now (owner).
+      description: |
+        Starts a check in the background; progress arrives as `update` events. The reply is
+        the state once the check has begun (`checking`), or the unchanged state when a check
+        is already running or the build cannot check. A client that applied an `update` event
+        while this request was in flight must prefer the event, which is newer.
+      security:
+        - owner: []
+      responses:
+        "202":
+          description: Check started (or already running).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateStatus"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/update/apply:
+    post:
+      tags: [update]
+      operationId: applyUpdate
+      summary: Restart into the staged update (owner).
+      description: |
+        Requires state `ready`. The server stops accepting requests, swaps the executable,
+        starts the new version and exits once the new one answers `/api/health`; on failure it
+        rolls back, restarts and reports `failed`. The window loses its connection for a few
+        seconds either way.
+      security:
+        - owner: []
+      responses:
+        "202":
+          description: Restarting.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: No update is ready (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/network:
+    get:
+      tags: [app]
+      operationId: getNetwork
+      summary: Result of the last firewall check (owner).
+      security:
+        - owner: []
+      responses:
+        "200":
+          description: Firewall and network profile state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Network"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/network/allow:
+    post:
+      tags: [app]
+      operationId: allowNetwork
+      summary: Add the Windows Firewall rule for Ferry (owner, one UAC prompt).
+      description: Blocks while the prompt is open. A fresh check runs afterwards and arrives as a `network` event.
+      security:
+        - owner: []
+      responses:
+        "204":
+          description: Rule added.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The prompt was declined (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "501":
+          description: Unsupported on this platform (`unsupported`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/app/show:
+    post:
+      tags: [app]
+      operationId: showWindow
+      summary: Bring the window to the front, creating it if needed (owner).
+      description: Used by a second `Ferry.exe` launch. A no-op when headless or without WebView2.
+      security:
+        - owner: []
+      responses:
+        "204":
+          description: Shown.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/app/quit:
+    post:
+      tags: [app]
+      operationId: quitApp
+      summary: Shut down gracefully (owner).
+      description: Used by `ferry uninstall`. Same sequence as the tray's Quit.
+      security:
+        - owner: []
+      responses:
+        "204":
+          description: Shutting down.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /manifest.webmanifest:
+    get:
+      tags: [system]
+      operationId: getManifest
+      summary: Web app manifest.
+      description: |
+        Static file from the embedded SPA, served with `Cache-Control: no-store`. It has no
+        `start_url` on purpose: WebKit then uses the page URL at Add-to-Home-Screen time, query
+        string included, so a Home Screen web app added while `?pair=<token>` is in the URL can
+        pair its own, separate storage context on first launch.
+      security: []
+      responses:
+        "200":
+          description: Manifest.
+          content:
+            application/manifest+json:
+              schema:
+                type: object
+                additionalProperties: true
+
+components:
+  securitySchemes:
+    deviceCookie:
+      type: apiKey
+      in: cookie
+      name: ferry_device
+      description: |
+        Opaque 43-character base64url token issued by `POST /api/pair`. The server stores only
+        its SHA-256. HttpOnly, SameSite=Lax, Path=/, one year, renewed on use.
+    sealSession:
+      type: apiKey
+      in: header
+      name: X-Ferry-Seal
+      description: |
+        The session id from `POST /api/seal`. Required together with the cookie on routes that
+        return sealed names or accept sealed bodies; `?seal=` replaces it on the event stream.
+        Unknown or missing: 403 `seal_expired`.
+    owner:
+      type: apiKey
+      in: header
+      name: X-Ferry-Owner
+      description: |
+        Placeholder for a role OpenAPI cannot express: the request must arrive over the
+        loopback interface. No header is actually sent or checked; the server classifies by
+        remote address.
+
+  parameters:
+    SealSession:
+      name: X-Ferry-Seal
+      in: header
+      required: true
+      schema:
+        type: string
+      description: The sealed session id.
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Id"
+    TransferId:
+      name: transferId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Id"
+    FileId:
+      name: fileId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Id"
+    UploadId:
+      name: uploadId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Id"
+    TusResumable:
+      name: Tus-Resumable
+      in: header
+      required: true
+      schema:
+        type: string
+        const: "1.0.0"
+
+  responses:
+    InvalidRequest:
+      description: Malformed body or parameters (`invalid_request`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: No valid device cookie (`unauthorized`). The cookie, if any, is cleared.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Owner-only (`forbidden`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    PendingOrForbidden:
+      description: Device not yet approved (`pending_approval`) or wrong role (`forbidden`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Unknown id (`not_found`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RateLimited:
+      description: Too many requests (`rate_limited`). `Retry-After` is set in seconds.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Id:
+      type: string
+      description: 26-character Crockford base32 ULID.
+      pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+      examples: ["01J9ZK0X5S8V7Q2M3N4P5R6T7W"]
+
+    Timestamp:
+      type: string
+      format: date-time
+      description: RFC 3339 in UTC with millisecond precision.
+      examples: ["2026-10-02T14:03:07.123Z"]
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              $ref: "#/components/schemas/ErrorCode"
+            message:
+              type: string
+
+    ErrorCode:
+      type: string
+      enum:
+        - invalid_request
+        - unauthorized
+        - forbidden
+        - pending_approval
+        - not_found
+        - pairing_invalid
+        - pairing_expired
+        - rate_limited
+        - too_large
+        - no_space
+        - file_missing
+        - expired
+        - conflict
+        - unsupported
+        - seal_expired
+        - seal_invalid
+        - internal
+
+    Health:
+      type: object
+      required: [name, version, app]
+      properties:
+        app:
+          type: string
+          const: ferry
+        name:
+          type: string
+          description: Display name of this PC (config `name`).
+        version:
+          type: string
+          examples: ["1.0.0"]
+
+    Session:
+      type: object
+      required: [role, server]
+      properties:
+        role:
+          type: string
+          enum: [none, device, owner]
+        device:
+          $ref: "#/components/schemas/Device"
+          description: Present when `role` is `device`.
+        server:
+          type: object
+          required: [name, version, origins]
+          properties:
+            name:
+              type: string
+            version:
+              type: string
+            origins:
+              type: object
+              description: Origins the server answers on; the client prefers `local` when it resolves.
+              required: [local, ip]
+              properties:
+                local:
+                  type: string
+                  examples: ["http://egetu-pc.local:8080"]
+                ip:
+                  type: string
+                  examples: ["http://192.168.1.23:8080"]
+
+    PairRequest:
+      type: object
+      required: [name]
+      properties:
+        token:
+          type: string
+          description: From the QR URL (`?pair=`).
+        code:
+          type: string
+          pattern: "^[0-9]{6}$"
+          description: Typed by the user from the PC screen.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Device display name, e.g. `iPhone`.
+        hasSecret:
+          type: boolean
+          default: false
+          description: The client read `#s=` from the QR URL and holds the derived device secret. Only meaningful with `token`.
+
+    Pairing:
+      type: object
+      required: [qrUrl, localUrl, code, expiresAt]
+      properties:
+        qrUrl:
+          type: string
+          description: |
+            Encoded in the QR. Uses the LAN IP origin so the first hop never depends on mDNS,
+            with `?pair=<token>` and the pairing secret in the fragment, `#s=<16 bytes base64url>`,
+            which browsers never send. Once loaded, the client probes the `.local` origin and
+            moves there (token and fragment included) when it resolves.
+          examples: ["http://192.168.1.23:8080/?pair=k3bJz9xQ2mL8vN4pR7tW1a#s=Qm9hdHNhcmVuaWNlISE"]
+        localUrl:
+          type: string
+          description: |
+            The same token and fragment on the `.local` origin, used by the client when it
+            moves there. The address pill shows only the host and copies the bare origin
+            (`http://egetu-pc.local:8080/`), never the token or the secret.
+          examples: ["http://egetu-pc.local:8080/?pair=k3bJz9xQ2mL8vN4pR7tW1a#s=Qm9hdHNhcmVuaWNlISE"]
+        code:
+          type: string
+          pattern: "^[0-9]{6}$"
+        expiresAt:
+          $ref: "#/components/schemas/Timestamp"
+
+    Device:
+      type: object
+      required: [id, name, status, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        name:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, revoked]
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        approvedAt:
+          $ref: "#/components/schemas/Timestamp"
+        lastSeenAt:
+          $ref: "#/components/schemas/Timestamp"
+
+    Transfer:
+      type: object
+      required: [id, deviceId, direction, name, size, done, status, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+          description: For incoming transfers this is also the tus upload id.
+        deviceId:
+          $ref: "#/components/schemas/Id"
+        direction:
+          type: string
+          enum: ["in", "out"]
+          description: "`in` is phone to PC (upload); `out` is PC to phone (download)."
+        name:
+          type: string
+          description: |
+            Final filename on the PC (after sanitization and collision suffix). For a device
+            principal this is a sealed string (base64url of `nonce(24) || XChaCha20-Poly1305`
+            under the session key, aad `ferry-name`); the owner sees it plain.
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+        done:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Bytes received (in) or highest byte offset served (out).
+        status:
+          type: string
+          enum: [active, done, failed, canceled]
+        error:
+          $ref: "#/components/schemas/ErrorCode"
+          description: Present when `status` is `failed`.
+        fileId:
+          $ref: "#/components/schemas/Id"
+          description: The offered file, for `out` transfers.
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        updatedAt:
+          $ref: "#/components/schemas/Timestamp"
+
+    OfferedFile:
+      type: object
+      required: [id, name, size, modifiedAt, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        name:
+          type: string
+          description: Plain for the owner; a sealed string for a device principal (see `Transfer.name`).
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+        modifiedAt:
+          $ref: "#/components/schemas/Timestamp"
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+
+    OfferRequest:
+      type: object
+      required: [paths]
+      properties:
+        paths:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            type: string
+            description: Absolute path of a regular file on the PC.
+
+    SealRequest:
+      type: object
+      required: [clientKey]
+      properties:
+        clientKey:
+          type: string
+          description: Ephemeral X25519 public key, 32 bytes base64url without padding.
+        proof:
+          type: string
+          description: "`HMAC-SHA256(deviceSecret, \"ferry-seal-proof\" || clientKey)`, base64url; present when the device holds a secret."
+
+    SealResponse:
+      type: object
+      required: [sessionId, serverKey, confirm]
+      properties:
+        sessionId:
+          type: string
+          description: 16 random bytes base64url without padding; sent as `X-Ferry-Seal` (or `?seal=`).
+        serverKey:
+          type: string
+          description: Ephemeral X25519 public key, base64url.
+        confirm:
+          type: string
+          description: "`HMAC-SHA256(key, \"ferry-seal-confirm\" || serverKey)`, base64url; the client must verify it before using the session."
+
+    Settings:
+      type: object
+      required: [name, receivedDir, startAtLogin, checkUpdates]
+      properties:
+        name:
+          type: string
+        receivedDir:
+          type: string
+        startAtLogin:
+          type: boolean
+          description: Read from the registry Run key; false off Windows.
+        checkUpdates:
+          type: boolean
+
+    SettingsPatch:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        receivedDir:
+          type: string
+        startAtLogin:
+          type: boolean
+        checkUpdates:
+          type: boolean
+
+    UpdateStatus:
+      type: object
+      required: [current, state]
+      properties:
+        current:
+          type: string
+          examples: ["1.0.0"]
+        available:
+          type: string
+          description: The newest version the manifest offered, when it is newer than `current`.
+        state:
+          type: string
+          enum: [idle, checking, downloading, ready, failed, disabled]
+          description: "`disabled` for a dev build or while automatic checks are off and none was requested."
+        checkedAt:
+          $ref: "#/components/schemas/Timestamp"
+        error:
+          type: string
+          description: Present when `state` is `failed`; for logs, not for display.
+
+    Network:
+      type: object
+      required: [firewall, profile]
+      properties:
+        firewall:
+          type: string
+          enum: [allowed, blocked, unknown]
+          description: Whether an inbound allow rule covers Ferry on every active network profile.
+        profile:
+          type: string
+          enum: [private, public, unknown]
