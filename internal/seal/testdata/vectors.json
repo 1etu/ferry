@@ -1,0 +1,122 @@
+{
+  "notes": [
+    "Byte strings are lowercase hex; fields ending in Base64url carry the wire text (RFC 4648 base64url, no padding).",
+    "Normative layout: docs/architecture.md section 8.5. Regenerate: FERRY_WRITE_VECTORS=1 go test ./internal/seal"
+  ],
+  "pairing": {
+    "secret": "7c18ff79de1667a79da767f530cf77b0",
+    "deviceSecret": "8ffce7eb8dfc6ac411b0320ed8b1a6ecb0b5ad83a04bbbfda914556418cd69fd"
+  },
+  "handshakes": [
+    {
+      "name": "with device secret",
+      "deviceSecret": "8ffce7eb8dfc6ac411b0320ed8b1a6ecb0b5ad83a04bbbfda914556418cd69fd",
+      "clientPrivate": "ff24c3ce52916508e2e7a31bfebb9cbf34b5f60fae7d80e4c87ee155649aa448",
+      "clientPublic": "2f6a8cfd1d2113f922c92e1f9932549d9dec9e81b5579c8eab52fd8ce1697e16",
+      "clientKeyBase64url": "L2qM_R0hE_kiyS4fmTJUnZ3snoG1V5yOq1L9jOFpfhY",
+      "proof": "1ceb9891ca446e2984090cb6ed99849f7da7334669a0cb34a13fba8b5368837a",
+      "proofBase64url": "HOuYkcpEbimECQy27ZmEn32nM0ZpoMs0oT-6i1Nog3o",
+      "serverPrivate": "40d0102cc8316864482920d07f6ddc4b2cf301b71350473fa4bfa95d59531802",
+      "serverPublic": "cfe1e64c681087990dd199560ff33368ec14725e27bcc7349a791edb3a730f03",
+      "serverKeyBase64url": "z-HmTGgQh5kN0ZlWD_MzaOwUcl4nvMc0mnke2zpzDwM",
+      "shared": "3f5af49be20779dcdfc408b6c9b064b5b868c5079517d26d394bdd58ea049f44",
+      "key": "462b8a056b69c19df826b1c6dae3c8056eb253cd4104992f703e2e4865d8010f",
+      "confirm": "f82fc1d1f70ce767c36210d3d7e0bf19da764a2e47aafad2d868c5acef8732f0",
+      "confirmBase64url": "-C_B0fcM52fDYhDT1-C_Gdp2Si5HqvrS2GjFrO-HMvA",
+      "derivedDeviceSecret": ""
+    },
+    {
+      "name": "trust on first use",
+      "deviceSecret": "",
+      "clientPrivate": "1b02eaba8d53e171e63debfa20719b8e1de911b40d305bbe95b75a9350c31c89",
+      "clientPublic": "fa0ce073bb5059958dbc8dd4e8d9c79cc5c23a75306491a828c3a0575dc2c756",
+      "clientKeyBase64url": "-gzgc7tQWZWNvI3U6NnHnMXCOnUwZJGoKMOgV13Cx1Y",
+      "proof": "",
+      "proofBase64url": "",
+      "serverPrivate": "de5d57bf7881923243273411b01e929ac922add2211999a1e1b63d7e08418dd6",
+      "serverPublic": "b5731007912a00a523844be38130d854e9036f1846fad364c57689e6c18c1362",
+      "serverKeyBase64url": "tXMQB5EqAKUjhEvjgTDYVOkDbxhG-tNkxXaJ5sGME2I",
+      "shared": "ae5b0a596972598f504789f8760857cdbc8d87944bbb92aa0120886714a11e79",
+      "key": "28bafabd0d3538665a4fbcf5911d0b5331d367b4cae115ba69aacf9e2fe67479",
+      "confirm": "579d69439958cc169a3047cead16c1a5abca93577153f10b930349ff12484917",
+      "confirmBase64url": "V51pQ5lYzBaaMEfOrRbBpavKk1dxU_ELkwNJ_xJISRc",
+      "derivedDeviceSecret": "e1b6eeac81cd01e1b2c4f96270dbc6d928e6e890d4c9974b7fd3934c91ce4ec4"
+    }
+  ],
+  "strings": [
+    {
+      "name": "ascii",
+      "key": "6b34f4b92d64f02fdba0a5d1f20f607fbc2acf7e3430556e61588d85c733d9c8",
+      "nonce": "95f1f4f76358c963830eb91f788a3b3dd48b6a8e5281efb3",
+      "plain": "IMG_0001.HEIC",
+      "sealed": "95f1f4f76358c963830eb91f788a3b3dd48b6a8e5281efb351d15d8aa34b6c44c9c5ff351d1956d7f4289ea17abe27682a84cae64e",
+      "sealedBase64url": "lfH092NYyWODDrkfeIo7PdSLao5Sge-zUdFdiqNLbETJxf81HRlW1_QonqF6vidoKoTK5k4"
+    },
+    {
+      "name": "unicode",
+      "key": "6b34f4b92d64f02fdba0a5d1f20f607fbc2acf7e3430556e61588d85c733d9c8",
+      "nonce": "6fccf198bf5e8fa00c945d6c202743031a06f3d35d808cfa",
+      "plain": "Fähre – 渡し船 🚢.mov",
+      "sealed": "6fccf198bf5e8fa00c945d6c202743031a06f3d35d808cfac2b8167a819659d46b11884a1ed5c04085c9adc6c6fb5a4d03ecd307acde1b1f69eada33ce5ea1716246cda473",
+      "sealedBase64url": "b8zxmL9ej6AMlF1sICdDAxoG89NdgIz6wrgWeoGWWdRrEYhKHtXAQIXJrcbG-1pNA-zTB6zeGx9p6tozzl6hcWJGzaRz"
+    },
+    {
+      "name": "empty",
+      "key": "6b34f4b92d64f02fdba0a5d1f20f607fbc2acf7e3430556e61588d85c733d9c8",
+      "nonce": "9de330546f24d1ba2d493cbb64eefecfc4288d3666ce8fab",
+      "plain": "",
+      "sealed": "9de330546f24d1ba2d493cbb64eefecfc4288d3666ce8fab01e65d15fa02f9ec4a626701526d3600",
+      "sealedBase64url": "neMwVG8k0botSTy7ZO7-z8QojTZmzo-rAeZdFfoC-exKYmcBUm02AA"
+    }
+  ],
+  "frames": {
+    "key": "8bb98b34633535da463a8b16c9ea8db3c11e9d674131114580deccd0f17e7720",
+    "nonce": "5493d52894d1ff6de83f0db530231360",
+    "plainPattern": "byte j of a large plaintext is j mod 251",
+    "small": [
+      {
+        "name": "one byte at index 0",
+        "index": 0,
+        "plain": "42",
+        "frame": "000000019d284f1c33df902e072dbc564846f8722a"
+      },
+      {
+        "name": "seventeen bytes at index 1",
+        "index": 1,
+        "plain": "df51a230e6f3f16762baf87ef213d97b22",
+        "frame": "0000001139a62c07a08de3f608f4804f74de67d12a1e014ae3c871e907412ec83e7d333ff4"
+      },
+      {
+        "name": "one hundred pattern bytes at an index above 32 bits",
+        "index": 4294967297,
+        "plain": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f60616263",
+        "frame": "00000064df10bbc93a66a0c6b362de40d9c97524a3377cb4750b78e8d9210ee9e10b9ea29509fb7940f903e1f1d37a43762277874c141d8e9a241fd0f6b1aa71f95f568dcef1e3783ea6c24cabacf3296756b7d1729208ea9f1cc1455ca0456d77664125826b058b72c8aca1cf1e73aed1ede46afda3fb18"
+      }
+    ],
+    "large": [
+      {
+        "name": "full frame at index 0",
+        "index": 0,
+        "plainLength": 1048576,
+        "frameLength": 1048596,
+        "frameSha256": "39234fec6ad4bd69bd88e75fc0450f33561525dcd594be3e01b8dc5100084ce4"
+      },
+      {
+        "name": "full frame at index 7",
+        "index": 7,
+        "plainLength": 1048576,
+        "frameLength": 1048596,
+        "frameSha256": "cb445ae1dc448f4c3877a205fe4c4323719cefb754cd1db49516e80142ca739f"
+      }
+    ],
+    "stream": {
+      "plainLength": 2621440,
+      "frameCount": 3,
+      "bodyLength": 2621500,
+      "bodySha256": "028caae9c83158f976d54a3a39e4e90e6a2f8030895b5185b93914a7576573ac",
+      "resumeOffset": 1048576,
+      "resumeBodyLength": 1572904,
+      "resumeBodySha256": "7406b0e74ddec1d8c2faf9302b1b916ff2f586db28e480ff5fdb7436ee925243"
+    }
+  }
+}
