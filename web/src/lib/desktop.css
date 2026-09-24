@@ -1,0 +1,39 @@
+:root {
+  --type-desktop-title: 700 22px/26px var(--font);
+  --type-desktop-headline: 700 13px/16px var(--font);
+  --type-desktop-body: 400 13px/16px var(--font);
+  --type-desktop-subheadline: 400 11px/14px var(--font);
+  --type-desktop-tracking: 0;
+
+  --push-button-height: 28px;
+  --push-button-radius: 6px;
+  --desktop-press-opacity: 0.7;
+  --desktop-busy-ring-size: 16px;
+}
+
+.text-desktop-body {
+  font: var(--type-desktop-body);
+  letter-spacing: var(--type-desktop-tracking);
+}
+
+.desktop {
+  --type-title-1: var(--type-desktop-title);
+  --type-title-1-tracking: var(--type-desktop-tracking);
+  --type-headline: var(--type-desktop-headline);
+  --type-headline-tracking: var(--type-desktop-tracking);
+  --type-body: var(--type-desktop-body);
+  --type-body-tracking: var(--type-desktop-tracking);
+  --type-footnote: var(--type-desktop-subheadline);
+  --type-footnote-tracking: var(--type-desktop-tracking);
+
+  --system-grouped-background: var(--system-grouped-background-elevated);
+  --secondary-system-grouped-background: var(--secondary-system-grouped-background-elevated);
+  --tertiary-system-grouped-background: var(--tertiary-system-grouped-background-elevated);
+
+  --row-min-height: var(--hit);
+  --row-padding-block: var(--space-2);
+  --row-padding-inline: var(--space-3);
+  --row-trailing-bleed: var(--row-padding-block);
+  --filled-button-height: var(--hit);
+  --busy-ring-size: var(--desktop-busy-ring-size);
+}
