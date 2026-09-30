@@ -83,27 +83,10 @@ func mustInsertTransfers(t *testing.T, s *Store, transfers ...Transfer) {
 	}
 }
 
-func mustInsertFiles(t *testing.T, s *Store, files ...File) {
-	t.Helper()
-	for _, f := range files {
-		if err := s.InsertFile(t.Context(), f); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
 func transferIDs(transfers []Transfer) []string {
 	ids := make([]string, 0, len(transfers))
 	for i := range transfers {
 		ids = append(ids, transfers[i].ID)
-	}
-	return ids
-}
-
-func fileIDs(files []File) []string {
-	ids := make([]string, 0, len(files))
-	for _, f := range files {
-		ids = append(ids, f.ID)
 	}
 	return ids
 }

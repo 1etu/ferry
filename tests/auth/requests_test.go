@@ -1,4 +1,4 @@
-package auth
+package auth_test
 
 import (
 	"encoding/json"
@@ -9,9 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/oklog/ulid/v2"
-
 	"github.com/1etu/ferry/internal/api"
+	"github.com/1etu/ferry/internal/auth"
 	"github.com/1etu/ferry/internal/store"
 )
 
@@ -24,21 +23,21 @@ type authFixture struct {
 	t          *testing.T
 	clock      *fakeClock
 	store      *store.Store
-	auth       *Auth
+	auth       *auth.Auth
 	hostsCalls *atomic.Int32
 }
 
-func newAuthFixture(t *testing.T, isDev bool) *authFixture {
+func newAuthFixture(t *testing.T, port int, isDev bool) *authFixture {
 	t.Helper()
 	clock := newFakeClock()
 	st := openTestStore(t)
 	hostsCalls := &atomic.Int32{}
-	cfg := Config{
+	cfg := auth.Config{
 		Hosts: func() []string {
 			hostsCalls.Add(1)
 			return []string{"egetu-pc", "egetu-pc.local", "192.168.1.23"}
 		},
-		Port: 8080,
+		Port: port,
 		Dev:  isDev,
 		Now:  clock.Now,
 	}
@@ -46,68 +45,26 @@ func newAuthFixture(t *testing.T, isDev bool) *authFixture {
 		t:          t,
 		clock:      clock,
 		store:      st,
-		auth:       New(cfg, st, slog.New(slog.DiscardHandler)),
+		auth:       auth.New(cfg, st, slog.New(slog.DiscardHandler)),
 		hostsCalls: hostsCalls,
 	}
 }
 
-func (f *authFixture) insertDevice(status store.DeviceStatus) (store.Device, string) {
-	f.t.Helper()
-	token, hash := NewToken()
-	device := store.Device{
-		ID:        ulid.Make().String(),
-		Name:      "iPhone",
-		TokenHash: hash,
-		Status:    status,
-		CreatedAt: f.clock.Now(),
-	}
-	if err := f.store.InsertDevice(f.t.Context(), device); err != nil {
-		f.t.Fatalf("insert device: %v", err)
-	}
-	return device, token
-}
-
-type identified struct {
-	principal Principal
-	remote    string
-}
-
-func (f *authFixture) identify(r *http.Request) (*httptest.ResponseRecorder, identified) {
-	var seen identified
-	handler := f.auth.Identify(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		seen = identified{principal: FromContext(r.Context()), remote: r.RemoteAddr}
-	}))
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, r)
-	return rec, seen
-}
-
-func newRequest(remote string) *http.Request {
-	const host = "egetu-pc.local:8080"
-	r := httptest.NewRequest(http.MethodGet, "http://"+host+"/api/session", http.NoBody)
+func newRequest(method, host, remote string) *http.Request {
+	r := httptest.NewRequest(method, "http://"+host+"/api/session", http.NoBody)
 	r.Host = host
 	r.RemoteAddr = remote
-	return r
-}
-
-func withDeviceCookie(r *http.Request, token string) *http.Request {
-	r.AddCookie(&http.Cookie{Name: CookieName, Value: token})
 	return r
 }
 
 func deviceCookies(rec *httptest.ResponseRecorder) []string {
 	var found []string
 	for _, v := range rec.Result().Header.Values("Set-Cookie") {
-		if strings.HasPrefix(v, CookieName+"=") {
+		if strings.HasPrefix(v, auth.CookieName+"=") {
 			found = append(found, v)
 		}
 	}
 	return found
-}
-
-func isCookieCleared(rec *httptest.ResponseRecorder) bool {
-	cookies := deviceCookies(rec)
-	return len(cookies) == 1 && strings.HasPrefix(cookies[0], CookieName+"=;") && strings.Contains(cookies[0], "Max-Age=0")
 }
 
 func requireErrorResponse(t *testing.T, rec *httptest.ResponseRecorder, status int, code api.ErrorCode) {

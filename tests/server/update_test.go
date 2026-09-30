@@ -1,4 +1,4 @@
-package server
+package server_test
 
 import (
 	"crypto/ed25519"
@@ -18,6 +18,7 @@ import (
 	"github.com/1etu/ferry/internal/api"
 	"github.com/1etu/ferry/internal/events"
 	"github.com/1etu/ferry/internal/update"
+	"github.com/1etu/ferry/tests/kit"
 )
 
 const (
@@ -28,9 +29,7 @@ const (
 func releaseServer(t *testing.T) (*httptest.Server, ed25519.PublicKey) {
 	t.Helper()
 	public, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	kit.NoError(t, err)
 	asset := []byte("MZ new build")
 	sum := sha256.Sum256(asset)
 	manifest, err := update.MarshalManifest(update.Manifest{
@@ -39,9 +38,7 @@ func releaseServer(t *testing.T) (*httptest.Server, ed25519.PublicKey) {
 			runtime.GOOS + "-" + runtime.GOARCH: {Name: "Ferry.exe", Size: int64(len(asset)), SHA256: hex.EncodeToString(sum[:])},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	kit.NoError(t, err)
 	signature := base64.StdEncoding.EncodeToString(ed25519.Sign(private, manifest))
 	bodies := map[string][]byte{
 		releasePrefix + "/latest/download/manifest.json":             manifest,
@@ -67,9 +64,7 @@ func readyUpdater(t *testing.T) func(*events.Hub, *slog.Logger) *update.Updater 
 	srv, key := releaseServer(t)
 	dir := t.TempDir()
 	exe := filepath.Join(dir, "Ferry.exe")
-	if err := os.WriteFile(exe, []byte("MZ old build"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	kit.NoError(t, os.WriteFile(exe, []byte("MZ old build"), 0o600))
 	return func(hub *events.Hub, log *slog.Logger) *update.Updater {
 		return update.New(update.Config{
 			Current:     "1.0.0",

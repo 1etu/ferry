@@ -1,4 +1,4 @@
-package server
+package server_test
 
 import (
 	"bytes"
@@ -11,6 +11,7 @@ import (
 	"github.com/1etu/ferry/internal/api"
 	"github.com/1etu/ferry/internal/seal"
 	"github.com/1etu/ferry/internal/store"
+	"github.com/1etu/ferry/tests/kit"
 )
 
 func (c *client) handshake() response {
@@ -83,9 +84,7 @@ func TestFirstUseHandshakeStoresTheSecretAndLaterRequiresProof(t *testing.T) {
 	f := newFixture(t, options{})
 	device, d := f.approvedDevice()
 	stored, err := f.store.Device(t.Context(), d.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	kit.NoError(t, err)
 	if len(device.secret) != 32 || !bytes.Equal(stored.Secret, device.secret) {
 		t.Fatalf("stored secret %x, client secret %x", stored.Secret, device.secret)
 	}

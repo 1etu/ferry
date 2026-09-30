@@ -1,4 +1,4 @@
-package server
+package server_test
 
 import (
 	"bytes"
@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/1etu/ferry/internal/seal"
+	"github.com/1etu/ferry/tests/kit"
 )
 
 const frameOverhead = 20
@@ -139,9 +140,7 @@ func (f *fixture) startPatch(device *client, target string, size int64) *running
 func (p *runningPatch) write(t *testing.T, plain []byte) {
 	t.Helper()
 	frame, err := seal.SealFrame(&p.key, p.nonce, p.index, plain)
-	if err != nil {
-		t.Fatal(err)
-	}
+	kit.NoError(t, err)
 	p.index++
 	if _, err := p.body.Write(frame); err != nil {
 		t.Fatal(err)

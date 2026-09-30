@@ -37,8 +37,8 @@ func TestTailRangeThenHeadCompletesTheTransfer(t *testing.T) {
 	fx := newFixture(t)
 	f := fx.offer(t, "movie.mov", testContent(1000))
 
-	fx.serve(t, f.ID, testDeviceID, http.Header{"Range": {"bytes=600-"}})
-	fx.serve(t, f.ID, testDeviceID, http.Header{"Range": {"bytes=0-599"}})
+	fx.serve(t, f.ID, http.Header{"Range": {"bytes=600-"}})
+	fx.serve(t, f.ID, http.Header{"Range": {"bytes=0-599"}})
 
 	if got := fx.onlyTransfer(t); got.Done != 600 || got.Status != store.TransferActive {
 		t.Fatalf("got done %d status %s after separate requests, want 600 active", got.Done, got.Status)
@@ -51,9 +51,9 @@ func TestTailRangeThenHeadCompletesTheTransfer(t *testing.T) {
 			return
 		}
 		transferID = fx.onlyTransfer(t).ID
-		fx.serve(t, f.ID, testDeviceID, http.Header{"Range": {"bytes=0-599"}})
+		fx.serve(t, f.ID, http.Header{"Range": {"bytes=0-599"}})
 	}
-	fx.outbox.Serve(w, contentRequest(t.Context(), f.ID, testDeviceID, http.Header{"Range": {"bytes=600-"}}), f.ID)
+	fx.outbox.Serve(w, contentRequest(t, f.ID, http.Header{"Range": {"bytes=600-"}}), f.ID)
 
 	if got := fx.onlyTransfer(t); got.Done != 1000 || got.Status != store.TransferDone {
 		t.Fatalf("got done %d status %s with head and tail served together, want 1000 done", got.Done, got.Status)
@@ -73,9 +73,9 @@ func TestNoProgressIsPublishedAfterAParallelRequestCompletes(t *testing.T) {
 			return
 		}
 		isParallelServed = true
-		fx.serve(t, f.ID, testDeviceID, nil)
+		fx.serve(t, f.ID, nil)
 	}
-	fx.outbox.Serve(w, contentRequest(t.Context(), f.ID, testDeviceID, nil), f.ID)
+	fx.outbox.Serve(w, contentRequest(t, f.ID, nil), f.ID)
 
 	requireEndsSettled(t, transferStatuses(fx.drain()), store.TransferDone)
 	if got := fx.onlyTransfer(t); got.Status != store.TransferDone || got.Done != int64(3*progressChunkBytes) {
@@ -100,7 +100,7 @@ func TestCancelDuringADownloadEndsItsEvents(t *testing.T) {
 			t.Fatalf("cancel: %v", err)
 		}
 	}
-	fx.outbox.Serve(w, contentRequest(t.Context(), f.ID, testDeviceID, nil), f.ID)
+	fx.outbox.Serve(w, contentRequest(t, f.ID, nil), f.ID)
 
 	requireEndsSettled(t, transferStatuses(fx.drain()), store.TransferCanceled)
 	got := fx.onlyTransfer(t)
@@ -113,7 +113,7 @@ func TestCancelOfAFinishedDownloadKeepsIt(t *testing.T) {
 	t.Parallel()
 	fx := newFixture(t)
 	f := fx.offer(t, "small.bin", testContent(100))
-	fx.serve(t, f.ID, testDeviceID, nil)
+	fx.serve(t, f.ID, nil)
 	done := fx.onlyTransfer(t)
 	fx.drain()
 

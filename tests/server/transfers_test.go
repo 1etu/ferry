@@ -1,4 +1,4 @@
-package server
+package server_test
 
 import (
 	"bytes"
@@ -12,6 +12,7 @@ import (
 	"github.com/1etu/ferry/internal/events"
 	"github.com/1etu/ferry/internal/inbox"
 	"github.com/1etu/ferry/internal/store"
+	"github.com/1etu/ferry/tests/kit"
 )
 
 func TestUploadThroughTheServerLandsInReceivedDir(t *testing.T) {
@@ -22,9 +23,7 @@ func TestUploadThroughTheServerLandsInReceivedDir(t *testing.T) {
 	_, target := f.createUpload(device, "note.txt", int64(len(content)))
 	expectStatus(t, device.do(patchRequest(device, target, 0, content)), http.StatusNoContent)
 	got, err := os.ReadFile(filepath.Join(f.received, "note.txt"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	kit.NoError(t, err)
 	if !bytes.Equal(got, content) {
 		t.Fatalf("received %q", got)
 	}
@@ -44,9 +43,7 @@ func TestShutdownCauseAnswersInFlightPatchAndKeepsThePartialFile(t *testing.T) {
 		t.Fatalf("in-flight PATCH answered %d %q", resp.status, resp.body)
 	}
 	info, err := os.Stat(filepath.Join(f.received, ".incoming", id))
-	if err != nil {
-		t.Fatal(err)
-	}
+	kit.NoError(t, err)
 	if info.Size() != 300 {
 		t.Fatalf("partial file holds %d bytes", info.Size())
 	}
@@ -143,9 +140,7 @@ func TestTransfersOverlayLiveUploadProgress(t *testing.T) {
 	running.write(t, bytes.Repeat([]byte{1}, 400))
 	waitFor(t, "progress", func() bool { done, ok := f.inbox.Progress(id); return ok && done >= 400 })
 	stored, err := f.store.Transfer(t.Context(), id)
-	if err != nil {
-		t.Fatal(err)
-	}
+	kit.NoError(t, err)
 	listed := decode[[]api.Transfer](t, device.send(http.MethodGet, "/api/transfers", nil))
 	if len(listed) != 1 || listed[0].Done < 400 || stored.Done >= 400 {
 		t.Fatalf("listed %+v, stored done %d", listed, stored.Done)

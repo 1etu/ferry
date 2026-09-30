@@ -1,4 +1,4 @@
-package server
+package server_test
 
 import (
 	"bufio"
@@ -14,14 +14,13 @@ import (
 
 	"github.com/1etu/ferry/internal/api"
 	"github.com/1etu/ferry/internal/platform"
+	"github.com/1etu/ferry/tests/kit"
 )
 
 func writeFile(t *testing.T, name, content string) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), name)
-	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	kit.NoError(t, os.WriteFile(p, []byte(content), 0o600))
 	return p
 }
 

@@ -1,4 +1,4 @@
-package server
+package server_test
 
 import (
 	"bytes"
@@ -7,12 +7,16 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/oklog/ulid/v2"
 
 	"github.com/1etu/ferry/internal/api"
+	"github.com/1etu/ferry/internal/store"
+	"github.com/1etu/ferry/tests/kit"
 )
 
 type client struct {
@@ -22,6 +26,7 @@ type client struct {
 	sealID       string
 	key          [32]byte
 	secret       []byte
+	nonces       map[string][]byte
 }
 
 type response struct {
@@ -76,9 +81,7 @@ func (f *fixture) approvedDevice() (*client, api.Device) {
 func pairingToken(t *testing.T, p api.Pairing) string {
 	t.Helper()
 	u, err := url.Parse(p.QRURL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	kit.NoError(t, err)
 	return u.Query().Get("pair")
 }
 
@@ -162,6 +165,46 @@ func expectError(t *testing.T, resp response, status int, code api.ErrorCode) {
 	}
 }
 
+func waitFor(t *testing.T, what string, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(waitTimeout)
+	for !condition() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+func (f *fixture) insertTransfer(deviceID string, direction store.Direction, status store.TransferStatus) store.Transfer {
+	f.t.Helper()
+	now := time.UnixMilli(time.Now().UnixMilli()).UTC()
+	t := store.Transfer{
+		ID:        newID(),
+		DeviceID:  deviceID,
+		Direction: direction,
+		Name:      "photo.jpg",
+		Size:      100,
+		Status:    status,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if status == store.TransferDone {
+		t.Done = t.Size
+		t.Path = filepath.Join(f.received, t.Name)
+	}
+	if err := f.store.InsertTransfer(f.t.Context(), t); err != nil {
+		f.t.Fatal(err)
+	}
+	return t
+}
+
 func newID() string {
 	return ulid.Make().String()
 }
+
+const (
+	jsonContentType = "application/json; charset=utf-8"
+	sealHeader      = "X-Ferry-Seal"
+	maxOfferPaths   = 500
+)

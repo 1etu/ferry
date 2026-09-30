@@ -1,4 +1,4 @@
-package outbox
+package outbox_test
 
 import (
 	"context"
@@ -12,7 +12,9 @@ import (
 
 	"github.com/1etu/ferry/internal/api"
 	"github.com/1etu/ferry/internal/events"
+	"github.com/1etu/ferry/internal/outbox"
 	"github.com/1etu/ferry/internal/store"
+	"github.com/1etu/ferry/tests/kit"
 )
 
 const testDeviceID = "01J9ZK0X5S8V7Q2M3N4P5R6T7W"
@@ -29,7 +31,7 @@ func deviceFromContext(ctx context.Context) (string, bool) {
 }
 
 type fixture struct {
-	outbox *Outbox
+	outbox *outbox.Outbox
 	store  *store.Store
 	events <-chan events.Event
 	dir    string
@@ -39,9 +41,7 @@ func newFixture(t *testing.T) fixture {
 	t.Helper()
 	dir := t.TempDir()
 	st, err := store.Open(t.Context(), filepath.Join(dir, "ferry.db"))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
+	kit.NoError(t, err, "open store")
 	t.Cleanup(func() {
 		if err := st.Close(); err != nil {
 			t.Errorf("close store: %v", err)
@@ -54,16 +54,14 @@ func newFixture(t *testing.T) fixture {
 		Status:    store.DeviceApproved,
 		CreatedAt: time.Now(),
 	})
-	if err != nil {
-		t.Fatalf("insert device: %v", err)
-	}
+	kit.NoError(t, err, "insert device")
 	log := slog.New(slog.DiscardHandler)
 	hub := events.NewHub(log)
 	t.Cleanup(hub.Close)
 	subscription, cancel := hub.Subscribe(events.Scope{Owner: true})
 	t.Cleanup(cancel)
 	return fixture{
-		outbox: New(st, hub, deviceFromContext, log),
+		outbox: outbox.New(st, hub, deviceFromContext, log),
 		store:  st,
 		events: subscription,
 		dir:    dir,
@@ -107,9 +105,7 @@ func (fx fixture) drain() []events.Event {
 func payloadJSON(t *testing.T, e events.Event) string {
 	t.Helper()
 	encoded, err := json.Marshal(e.Payload)
-	if err != nil {
-		t.Fatalf("encode payload: %v", err)
-	}
+	kit.NoError(t, err, "encode payload")
 	return string(encoded)
 }
 
@@ -140,13 +136,11 @@ func TestOfferRejectsAnythingButRegularFiles(t *testing.T) {
 			t.Parallel()
 			fx := newFixture(t)
 			_, err := fx.outbox.Offer(t.Context(), tt.paths(t, fx))
-			if !errors.Is(err, ErrNotRegularFile) {
+			if !errors.Is(err, outbox.ErrNotRegularFile) {
 				t.Fatalf("got %v, want ErrNotRegularFile", err)
 			}
 			files, err := fx.store.Files(t.Context())
-			if err != nil {
-				t.Fatalf("list files: %v", err)
-			}
+			kit.NoError(t, err, "list files")
 			if len(files) != 0 {
 				t.Fatalf("got %d stored files, want 0", len(files))
 			}
@@ -164,9 +158,7 @@ func TestOfferInsertsInRequestOrderAndPublishes(t *testing.T) {
 	second := fx.writeFile(t, "second.bin", []byte("1"))
 
 	offered, err := fx.outbox.Offer(t.Context(), []string{first, second})
-	if err != nil {
-		t.Fatalf("offer: %v", err)
-	}
+	kit.NoError(t, err, "offer")
 	if len(offered) != 2 || offered[0].Name != "first.txt" || offered[1].Name != "second.bin" {
 		t.Fatalf("got %+v, want first.txt then second.bin", offered)
 	}
@@ -174,9 +166,7 @@ func TestOfferInsertsInRequestOrderAndPublishes(t *testing.T) {
 		t.Fatalf("got path %q size %d, want %q size 5", offered[0].Path, offered[0].Size, first)
 	}
 	stored, err := fx.store.File(t.Context(), offered[0].ID)
-	if err != nil {
-		t.Fatalf("load stored file: %v", err)
-	}
+	kit.NoError(t, err, "load stored file")
 	if stored != offered[0] {
 		t.Fatalf("got stored %+v, want %+v", stored, offered[0])
 	}
@@ -202,9 +192,7 @@ func TestRemoveDeletesAndPublishes(t *testing.T) {
 	fx := newFixture(t)
 	f := fx.offer(t, "a.txt", []byte("a"))
 
-	if err := fx.outbox.Remove(t.Context(), f.ID); err != nil {
-		t.Fatalf("remove: %v", err)
-	}
+	kit.NoError(t, fx.outbox.Remove(t.Context(), f.ID), "remove")
 	if _, err := fx.store.File(t.Context(), f.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("got %v, want ErrNotFound after remove", err)
 	}
@@ -237,17 +225,11 @@ func TestSweepRemovesOnlyFilesOlderThanTheCutoff(t *testing.T) {
 		ModTime:   time.Now(),
 		CreatedAt: time.Now().Add(-8 * 24 * time.Hour),
 	}
-	if err := fx.store.InsertFile(t.Context(), stale); err != nil {
-		t.Fatalf("insert stale file: %v", err)
-	}
+	kit.NoError(t, fx.store.InsertFile(t.Context(), stale), "insert stale file")
 
-	if err := fx.outbox.Sweep(t.Context(), 7*24*time.Hour); err != nil {
-		t.Fatalf("sweep: %v", err)
-	}
+	kit.NoError(t, fx.outbox.Sweep(t.Context(), 7*24*time.Hour), "sweep")
 	files, err := fx.store.Files(t.Context())
-	if err != nil {
-		t.Fatalf("list files: %v", err)
-	}
+	kit.NoError(t, err, "list files")
 	if len(files) != 1 || files[0].ID != fresh.ID {
 		t.Fatalf("got %+v, want only %s", files, fresh.ID)
 	}

@@ -1,4 +1,4 @@
-package api
+package api_test
 
 import (
 	"encoding/json"
@@ -8,10 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
 	"gopkg.in/yaml.v3"
 
+	"github.com/1etu/ferry/internal/api"
 	"github.com/1etu/ferry/internal/store"
+	"github.com/1etu/ferry/tests/kit"
 )
 
 type contractSchema struct {
@@ -29,13 +30,9 @@ type contract struct {
 func loadContract(t *testing.T) contract {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "..", "api", "openapi.yaml"))
-	if err != nil {
-		t.Fatalf("read contract: %v", err)
-	}
+	kit.NoError(t, err, "read contract")
 	var c contract
-	if err := yaml.Unmarshal(raw, &c); err != nil {
-		t.Fatalf("parse contract: %v", err)
-	}
+	kit.NoError(t, yaml.Unmarshal(raw, &c), "parse contract")
 	return c
 }
 
@@ -60,39 +57,37 @@ func jsonKeys(t *testing.T, v any) []string {
 func TestErrorCodesMatchContract(t *testing.T) {
 	t.Parallel()
 	want := loadContract(t).Components.Schemas["ErrorCode"].Enum
-	got := make([]string, 0, len(ErrorCodes()))
-	for _, code := range ErrorCodes() {
+	got := make([]string, 0, len(api.ErrorCodes()))
+	for _, code := range api.ErrorCodes() {
 		got = append(got, string(code))
 	}
-	if diff := cmp.Diff(want, got); diff != "" {
-		t.Fatalf("error codes differ from api/openapi.yaml (-contract +go):\n%s", diff)
-	}
+	kit.Equal(t, got, want)
 }
 
 func TestSchemasMatchContract(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
-	fullDevice := Device{ID: "d", Name: "iPhone", Status: store.DeviceApproved, CreatedAt: Timestamp(now), ApprovedAt: Timestamp(now), LastSeenAt: Timestamp(now)}
+	fullDevice := api.Device{ID: "d", Name: "iPhone", Status: store.DeviceApproved, CreatedAt: api.Timestamp(now), ApprovedAt: api.Timestamp(now), LastSeenAt: api.Timestamp(now)}
 	tests := []struct {
 		schema string
 		full   any
 		empty  any
 	}{
-		{"Error", NewError(CodeInternal, "boom"), Error{}},
-		{"Health", Health{App: AppName, Name: "pc", Version: "1"}, Health{}},
-		{"Session", Session{Role: RoleDevice, Device: &fullDevice, Server: ServerInfo{}}, Session{}},
-		{"PairRequest", PairRequest{Token: "t", Code: "123456", Name: "iPhone", HasSecret: true}, PairRequest{}},
-		{"Pairing", Pairing{QRURL: "q", LocalURL: "l", Code: "123456", ExpiresAt: Timestamp(now)}, Pairing{}},
-		{"Device", fullDevice, Device{}},
-		{"Transfer", Transfer{ID: "t", Error: CodeExpired, FileID: "f"}, Transfer{}},
-		{"OfferedFile", OfferedFile{ID: "f"}, OfferedFile{}},
-		{"OfferRequest", OfferRequest{Paths: []string{"a"}}, OfferRequest{}},
-		{"SealRequest", SealRequest{ClientKey: "k", Proof: "p"}, SealRequest{}},
-		{"SealResponse", SealResponse{SessionID: "s", ServerKey: "k", Confirm: "c"}, SealResponse{}},
-		{"Settings", Settings{Name: "pc", ReceivedDir: "D:/Ferry", StartAtLogin: true, CheckUpdates: true}, Settings{}},
-		{"SettingsPatch", fullSettingsPatch(), SettingsPatch{}},
-		{"UpdateStatus", UpdateStatus{Current: "1.0.0", Available: "1.1.0", State: "failed", CheckedAt: Timestamp(now), Error: "boom"}, UpdateStatus{}},
-		{"Network", Network{Firewall: FirewallAllowed, Profile: "private"}, Network{}},
+		{"Error", api.NewError(api.CodeInternal, "boom"), api.Error{}},
+		{"Health", api.Health{App: api.AppName, Name: "pc", Version: "1"}, api.Health{}},
+		{"Session", api.Session{Role: api.RoleDevice, Device: &fullDevice, Server: api.ServerInfo{}}, api.Session{}},
+		{"PairRequest", api.PairRequest{Token: "t", Code: "123456", Name: "iPhone", HasSecret: true}, api.PairRequest{}},
+		{"Pairing", api.Pairing{QRURL: "q", LocalURL: "l", Code: "123456", ExpiresAt: api.Timestamp(now)}, api.Pairing{}},
+		{"Device", fullDevice, api.Device{}},
+		{"Transfer", api.Transfer{ID: "t", Error: api.CodeExpired, FileID: "f"}, api.Transfer{}},
+		{"OfferedFile", api.OfferedFile{ID: "f"}, api.OfferedFile{}},
+		{"OfferRequest", api.OfferRequest{Paths: []string{"a"}}, api.OfferRequest{}},
+		{"SealRequest", api.SealRequest{ClientKey: "k", Proof: "p"}, api.SealRequest{}},
+		{"SealResponse", api.SealResponse{SessionID: "s", ServerKey: "k", Confirm: "c"}, api.SealResponse{}},
+		{"Settings", api.Settings{Name: "pc", ReceivedDir: "D:/Ferry", StartAtLogin: true, CheckUpdates: true}, api.Settings{}},
+		{"SettingsPatch", fullSettingsPatch(), api.SettingsPatch{}},
+		{"UpdateStatus", api.UpdateStatus{Current: "1.0.0", Available: "1.1.0", State: "failed", CheckedAt: api.Timestamp(now), Error: "boom"}, api.UpdateStatus{}},
+		{"Network", api.Network{Firewall: api.FirewallAllowed, Profile: "private"}, api.Network{}},
 	}
 	schemas := loadContract(t).Components.Schemas
 	for _, tc := range tests {
@@ -107,9 +102,7 @@ func TestSchemasMatchContract(t *testing.T) {
 				properties = append(properties, name)
 			}
 			slices.Sort(properties)
-			if diff := cmp.Diff(properties, jsonKeys(t, tc.full)); diff != "" {
-				t.Fatalf("full value keys differ from contract properties (-contract +go):\n%s", diff)
-			}
+			kit.Equal(t, jsonKeys(t, tc.full), properties)
 			required := slices.Sorted(slices.Values(schema.Required))
 			emptyKeys := jsonKeys(t, tc.empty)
 			for _, name := range required {
@@ -121,22 +114,22 @@ func TestSchemasMatchContract(t *testing.T) {
 	}
 }
 
-func fullSettingsPatch() SettingsPatch {
+func fullSettingsPatch() api.SettingsPatch {
 	name, dir, isOn := "pc", "D:/Ferry", true
-	return SettingsPatch{Name: &name, ReceivedDir: &dir, StartAtLogin: &isOn, CheckUpdates: &isOn}
+	return api.SettingsPatch{Name: &name, ReceivedDir: &dir, StartAtLogin: &isOn, CheckUpdates: &isOn}
 }
 
 func TestTimestampIsUTCWithMilliseconds(t *testing.T) {
 	t.Parallel()
 	zone := time.FixedZone("CEST", 2*60*60)
 	at := time.Date(2026, 10, 2, 16, 3, 7, 123_456_000, zone)
-	if got := Timestamp(at); got != "2026-10-02T14:03:07.123Z" {
+	if got := api.Timestamp(at); got != "2026-10-02T14:03:07.123Z" {
 		t.Fatalf("got %q", got)
 	}
-	if got := OptionalTimestamp(time.Time{}); got != "" {
+	if got := api.OptionalTimestamp(time.Time{}); got != "" {
 		t.Fatalf("zero time encoded as %q, want empty", got)
 	}
-	if got := OptionalTimestamp(at); got != Timestamp(at) {
+	if got := api.OptionalTimestamp(at); got != api.Timestamp(at) {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -144,13 +137,11 @@ func TestTimestampIsUTCWithMilliseconds(t *testing.T) {
 func TestTransferFromOmitsEmptyOptionals(t *testing.T) {
 	t.Parallel()
 	at := time.UnixMilli(1_790_000_000_000)
-	encoded, err := json.Marshal(TransferFrom(store.Transfer{
+	encoded, err := json.Marshal(api.TransferFrom(store.Transfer{
 		ID: "t1", DeviceID: "d1", Direction: store.DirectionIn, Name: "a.jpg", Size: 10, Done: 4,
 		Status: store.TransferActive, CreatedAt: at, UpdatedAt: at,
 	}))
-	if err != nil {
-		t.Fatal(err)
-	}
+	kit.NoError(t, err)
 	want := `{"id":"t1","deviceId":"d1","direction":"in","name":"a.jpg","size":10,"done":4,"status":"active",` +
 		`"createdAt":"2026-09-21T14:13:20.000Z","updatedAt":"2026-09-21T14:13:20.000Z"}`
 	if string(encoded) != want {
@@ -160,7 +151,7 @@ func TestTransferFromOmitsEmptyOptionals(t *testing.T) {
 
 func TestDeviceFromOmitsNullTimestamps(t *testing.T) {
 	t.Parallel()
-	keys := jsonKeys(t, DeviceFrom(store.Device{ID: "d1", Name: "iPhone", Status: store.DevicePending, CreatedAt: time.Now()}))
+	keys := jsonKeys(t, api.DeviceFrom(store.Device{ID: "d1", Name: "iPhone", Status: store.DevicePending, CreatedAt: time.Now()}))
 	if slices.Contains(keys, "approvedAt") || slices.Contains(keys, "lastSeenAt") {
 		t.Fatalf("null timestamps encoded: %v", keys)
 	}
@@ -170,7 +161,7 @@ func TestPairingURLCarriesTheTokenAndTheSecretInTheFragment(t *testing.T) {
 	t.Parallel()
 	secret := []byte("Boatsarenice!!!!")
 	want := "http://192.168.1.23:8080/?pair=k3bJz9xQ2mL8vN4pR7tW1a#s=Qm9hdHNhcmVuaWNlISEhIQ"
-	if got := PairingURL("http://192.168.1.23:8080", "k3bJz9xQ2mL8vN4pR7tW1a", secret); got != want {
+	if got := api.PairingURL("http://192.168.1.23:8080", "k3bJz9xQ2mL8vN4pR7tW1a", secret); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
@@ -178,8 +169,8 @@ func TestPairingURLCarriesTheTokenAndTheSecretInTheFragment(t *testing.T) {
 func TestWithSealedNamesSealsOnlyTheName(t *testing.T) {
 	t.Parallel()
 	seal := func(plain string) (string, bool) { return "sealed:" + plain, true }
-	transfer := Transfer{ID: "t1", Name: "a.jpg", Size: 3}
-	file := OfferedFile{ID: "f1", Name: "b.pdf", Size: 4}
+	transfer := api.Transfer{ID: "t1", Name: "a.jpg", Size: 3}
+	file := api.OfferedFile{ID: "f1", Name: "b.pdf", Size: 4}
 	tests := []struct {
 		name  string
 		value interface {
@@ -187,9 +178,9 @@ func TestWithSealedNamesSealsOnlyTheName(t *testing.T) {
 		}
 		want any
 	}{
-		{"transfer", transfer, Transfer{ID: "t1", Name: "sealed:a.jpg", Size: 3}},
-		{"offered file", file, OfferedFile{ID: "f1", Name: "sealed:b.pdf", Size: 4}},
-		{"file change", FileChange{Action: FileAdded, File: file}, FileChange{Action: FileAdded, File: OfferedFile{ID: "f1", Name: "sealed:b.pdf", Size: 4}}},
+		{"transfer", transfer, api.Transfer{ID: "t1", Name: "sealed:a.jpg", Size: 3}},
+		{"offered file", file, api.OfferedFile{ID: "f1", Name: "sealed:b.pdf", Size: 4}},
+		{"file change", api.FileChange{Action: api.FileAdded, File: file}, api.FileChange{Action: api.FileAdded, File: api.OfferedFile{ID: "f1", Name: "sealed:b.pdf", Size: 4}}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -198,9 +189,7 @@ func TestWithSealedNamesSealsOnlyTheName(t *testing.T) {
 			if !ok {
 				t.Fatal("sealing reported failure")
 			}
-			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Fatalf("sealed payload differs (-want +got):\n%s", diff)
-			}
+			kit.Equal(t, got, tc.want)
 			if _, ok := tc.value.WithSealedNames(func(string) (string, bool) { return "", false }); ok {
 				t.Fatal("a failed sealer still produced a payload")
 			}

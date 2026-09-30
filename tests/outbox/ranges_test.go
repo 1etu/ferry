@@ -1,4 +1,4 @@
-package outbox
+package outbox_test
 
 import (
 	"bytes"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/1etu/ferry/internal/api"
 	"github.com/1etu/ferry/internal/store"
+	"github.com/1etu/ferry/tests/kit"
 )
 
 func TestServeRanges(t *testing.T) {
@@ -132,9 +133,7 @@ func TestIfRangeResumesOnlyAnUnchangedFile(t *testing.T) {
 	}
 
 	changed := append(testContent(1000), 'x')
-	if err := os.WriteFile(f.Path, changed, 0o600); err != nil {
-		t.Fatalf("rewrite offered file: %v", err)
-	}
+	kit.NoError(t, os.WriteFile(f.Path, changed, 0o600), "rewrite offered file")
 	restarted := fx.serve(t, f.ID, "", http.Header{"Range": {"bytes=500-"}, "If-Range": {etag}})
 	if restarted.Code != http.StatusOK || !bytes.Equal(restarted.Body.Bytes(), changed) {
 		t.Fatalf("got status %d with %d bytes, want 200 with the whole changed file", restarted.Code, restarted.Body.Len())

@@ -48,7 +48,7 @@ func TestProgressIsLiveDuringTheResponseAndClearedAfter(t *testing.T) {
 		observed = append(observed, done)
 	}
 
-	fx.outbox.Serve(w, contentRequest(t.Context(), f.ID, testDeviceID, nil), f.ID)
+	fx.outbox.Serve(w, contentRequest(t, f.ID, nil), f.ID)
 
 	if w.Body.Len() != size {
 		t.Fatalf("got %d bytes, want %d", w.Body.Len(), size)
@@ -70,7 +70,7 @@ func TestProgressEventsAreThrottled(t *testing.T) {
 	fx.outbox.progressInterval = time.Hour
 	f := fx.offer(t, "big.bin", testContent(4*progressChunkBytes))
 
-	fx.serve(t, f.ID, testDeviceID, nil)
+	fx.serve(t, f.ID, nil)
 
 	var statuses []store.TransferStatus
 	for _, e := range fx.drain() {
@@ -107,7 +107,7 @@ func TestClientDisconnectKeepsProgressAndReleasesTracking(t *testing.T) {
 	cut := progressChunkBytes + 12345
 	w := &disconnectingWriter{ResponseRecorder: httptest.NewRecorder(), remaining: cut}
 
-	fx.outbox.Serve(w, contentRequest(t.Context(), f.ID, testDeviceID, nil), f.ID)
+	fx.outbox.Serve(w, contentRequest(t, f.ID, nil), f.ID)
 
 	got := fx.onlyTransfer(t)
 	if got.Done != int64(cut) || got.Status != store.TransferActive {

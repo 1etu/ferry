@@ -46,8 +46,8 @@ func TestIdentify(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			f := newAuthFixture(t, 8080, tc.isDev)
-			r := newRequest(http.MethodGet, "egetu-pc.local:8080", tc.remote)
+			f := newAuthFixture(t, tc.isDev)
+			r := newRequest(tc.remote)
 			for _, hops := range tc.forwardedFor {
 				r.Header.Add("X-Forwarded-For", hops)
 			}
@@ -80,7 +80,7 @@ func TestIdentify(t *testing.T) {
 
 func TestIdentifyTouchesLastSeenAtMostOncePerMinute(t *testing.T) {
 	t.Parallel()
-	f := newAuthFixture(t, 8080, false)
+	f := newAuthFixture(t, false)
 	device, token := f.insertDevice(store.DeviceApproved)
 	lastSeen := func() time.Time {
 		stored, err := f.store.Device(t.Context(), device.ID)
@@ -90,7 +90,7 @@ func TestIdentifyTouchesLastSeenAtMostOncePerMinute(t *testing.T) {
 		return stored.LastSeenAt
 	}
 	request := func() Principal {
-		_, seen := f.identify(withDeviceCookie(newRequest(http.MethodGet, "egetu-pc.local:8080", lanPeer), token))
+		_, seen := f.identify(withDeviceCookie(newRequest(lanPeer), token))
 		return seen.principal
 	}
 
@@ -117,10 +117,10 @@ func TestIdentifyTouchesLastSeenAtMostOncePerMinute(t *testing.T) {
 
 func TestIdentifyRenewsCookieOncePerDay(t *testing.T) {
 	t.Parallel()
-	f := newAuthFixture(t, 8080, false)
+	f := newAuthFixture(t, false)
 	_, token := f.insertDevice(store.DeviceApproved)
 	renewal := func() []string {
-		rec, _ := f.identify(withDeviceCookie(newRequest(http.MethodGet, "egetu-pc.local:8080", lanPeer), token))
+		rec, _ := f.identify(withDeviceCookie(newRequest(lanPeer), token))
 		return deviceCookies(rec)
 	}
 
@@ -139,13 +139,13 @@ func TestIdentifyRenewsCookieOncePerDay(t *testing.T) {
 
 func TestIdentifyFailsClosedWhenStoreFails(t *testing.T) {
 	t.Parallel()
-	f := newAuthFixture(t, 8080, false)
+	f := newAuthFixture(t, false)
 	_, token := f.insertDevice(store.DeviceApproved)
 	if err := f.store.Close(); err != nil {
 		t.Fatalf("close store: %v", err)
 	}
 
-	rec, seen := f.identify(withDeviceCookie(newRequest(http.MethodGet, "egetu-pc.local:8080", loopbackPeer), token))
+	rec, seen := f.identify(withDeviceCookie(newRequest(loopbackPeer), token))
 	if seen.principal.Role != RoleNone || seen.remote != "" {
 		t.Fatal("handler ran although identification failed")
 	}
@@ -157,7 +157,7 @@ func TestIdentifyFailsClosedWhenStoreFails(t *testing.T) {
 
 func TestRequireGuards(t *testing.T) {
 	t.Parallel()
-	f := newAuthFixture(t, 8080, false)
+	f := newAuthFixture(t, false)
 	none := Principal{}
 	owner := Principal{Role: RoleOwner}
 	pending := Principal{Role: RoleDevice, Device: store.Device{ID: "P", Status: store.DevicePending}}
@@ -186,7 +186,7 @@ func TestRequireGuards(t *testing.T) {
 		for principalName, p := range principals {
 			t.Run(g.name+" "+principalName, func(t *testing.T) {
 				t.Parallel()
-				r := newRequest(http.MethodGet, "egetu-pc.local:8080", lanPeer)
+				r := newRequest(lanPeer)
 				r = r.WithContext(withPrincipal(r.Context(), p))
 				rec := httptest.NewRecorder()
 				g.guard(reached).ServeHTTP(rec, r)
@@ -205,11 +205,11 @@ func TestRequireGuards(t *testing.T) {
 
 func TestRevokedCookieOnGuardedRouteIsUnauthorizedAndCleared(t *testing.T) {
 	t.Parallel()
-	f := newAuthFixture(t, 8080, false)
+	f := newAuthFixture(t, false)
 	_, token := f.insertDevice(store.DeviceRevoked)
 	rec := httptest.NewRecorder()
 	handler := f.auth.Identify(f.auth.RequireOwnerOrApprovedDevice(reached))
-	handler.ServeHTTP(rec, withDeviceCookie(newRequest(http.MethodGet, "egetu-pc.local:8080", lanPeer), token))
+	handler.ServeHTTP(rec, withDeviceCookie(newRequest(lanPeer), token))
 
 	requireErrorResponse(t, rec, http.StatusUnauthorized, api.CodeUnauthorized)
 	if !isCookieCleared(rec) {

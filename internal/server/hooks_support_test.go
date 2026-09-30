@@ -67,15 +67,3 @@ func (h *hooks) allowFirewall(context.Context) error {
 	h.firewallAllows++
 	return h.firewallErr
 }
-
-func (h *hooks) set(mutate func(*hooks)) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	mutate(h)
-}
-
-func (h *hooks) calls() (shows, quits, settingsApplied, firewallAllowed int) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.shows, h.quits, len(h.applied), h.firewallAllows
-}

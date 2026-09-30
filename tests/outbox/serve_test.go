@@ -1,4 +1,4 @@
-package outbox
+package outbox_test
 
 import (
 	"bytes"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/1etu/ferry/internal/api"
 	"github.com/1etu/ferry/internal/store"
+	"github.com/1etu/ferry/tests/kit"
 )
 
 func testContent(size int) []byte {
@@ -42,9 +43,7 @@ func (fx fixture) serve(t *testing.T, fileID, deviceID string, header http.Heade
 func (fx fixture) transfers(t *testing.T) []store.Transfer {
 	t.Helper()
 	all, err := fx.store.Transfers(t.Context(), "", 100)
-	if err != nil {
-		t.Fatalf("list transfers: %v", err)
-	}
+	kit.NoError(t, err, "list transfers")
 	return all
 }
 
@@ -158,9 +157,7 @@ func TestServeMissingFile(t *testing.T) {
 			t.Parallel()
 			fx := newFixture(t)
 			f := fx.offer(t, "moved.txt", []byte("gone soon"))
-			if err := os.Remove(f.Path); err != nil {
-				t.Fatalf("remove offered file: %v", err)
-			}
+			kit.NoError(t, os.Remove(f.Path), "remove offered file")
 
 			w := fx.serve(t, f.ID, tt.deviceID, nil)
 
@@ -183,9 +180,7 @@ func TestServeRefreshesChangedFile(t *testing.T) {
 	fx := newFixture(t)
 	f := fx.offer(t, "log.txt", []byte("short"))
 	grown := []byte("much longer now")
-	if err := os.WriteFile(f.Path, grown, 0o600); err != nil {
-		t.Fatalf("rewrite offered file: %v", err)
-	}
+	kit.NoError(t, os.WriteFile(f.Path, grown, 0o600), "rewrite offered file")
 
 	w := fx.serve(t, f.ID, testDeviceID, nil)
 
@@ -193,9 +188,7 @@ func TestServeRefreshesChangedFile(t *testing.T) {
 		t.Fatalf("got body %q, want %q", w.Body.String(), grown)
 	}
 	stored, err := fx.store.File(t.Context(), f.ID)
-	if err != nil {
-		t.Fatalf("load file: %v", err)
-	}
+	kit.NoError(t, err, "load file")
 	if stored.Size != int64(len(grown)) {
 		t.Fatalf("got stored size %d, want %d", stored.Size, len(grown))
 	}

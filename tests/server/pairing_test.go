@@ -1,4 +1,4 @@
-package server
+package server_test
 
 import (
 	"net/http"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/1etu/ferry/internal/api"
 	"github.com/1etu/ferry/internal/store"
+	"github.com/1etu/ferry/tests/kit"
 )
 
 func TestPairRejectsMalformedRequests(t *testing.T) {
@@ -155,9 +156,7 @@ func TestRevokeCancelsTheDevicesUploads(t *testing.T) {
 	id, _ := f.createUpload(device, "video.mov", 1000)
 	expectStatus(t, f.owner().send(http.MethodDelete, "/api/devices/"+d.ID, nil), http.StatusNoContent)
 	tr, err := f.store.Transfer(t.Context(), id)
-	if err != nil {
-		t.Fatal(err)
-	}
+	kit.NoError(t, err)
 	if tr.Status != store.TransferCanceled {
 		t.Fatalf("upload of revoked device is %q", tr.Status)
 	}

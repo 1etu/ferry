@@ -1,4 +1,4 @@
-package server
+package server_test
 
 import (
 	"context"
@@ -20,8 +20,10 @@ import (
 	"github.com/1etu/ferry/internal/inbox"
 	"github.com/1etu/ferry/internal/outbox"
 	"github.com/1etu/ferry/internal/seal"
+	"github.com/1etu/ferry/internal/server"
 	"github.com/1etu/ferry/internal/store"
 	"github.com/1etu/ferry/internal/update"
+	"github.com/1etu/ferry/tests/kit"
 )
 
 const (
@@ -46,7 +48,6 @@ type options struct {
 type fixture struct {
 	t          *testing.T
 	server     *httptest.Server
-	handler    *server
 	store      *store.Store
 	hub        *events.Hub
 	inbox      *inbox.Inbox
@@ -69,9 +70,7 @@ func newFixture(t *testing.T, opts options) *fixture {
 		log = slog.New(slog.DiscardHandler)
 	}
 	st, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "ferry.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	kit.NoError(t, err)
 	t.Cleanup(func() {
 		if err := st.Close(); err != nil {
 			t.Error(err)
@@ -108,9 +107,7 @@ func newFixture(t *testing.T, opts options) *fixture {
 		Session:            inbox.SessionFromContext,
 		FreeSpace:          func(string) (uint64, error) { return 1 << 40, nil },
 	}, st, f.hub, log)
-	if err != nil {
-		t.Fatal(err)
-	}
+	kit.NoError(t, err)
 	t.Cleanup(func() {
 		if err := f.inbox.Close(context.WithoutCancel(t.Context())); err != nil {
 			t.Error(err)
@@ -118,10 +115,10 @@ func newFixture(t *testing.T, opts options) *fixture {
 	})
 	pairings := auth.NewPairings(st, f.hub, origins, time.Now, log)
 	pairings.OnRevoke = f.sessions.Drop
-	f.handler = newServer(f.deps(opts, au, pairings, origins, log))
+	handler := server.New(f.deps(opts, au, pairings, origins, log))
 	base, cancelBase := context.WithCancelCause(context.WithoutCancel(t.Context()))
 	f.cancelBase = cancelBase
-	f.server.Config.Handler = f.handler.chain(f.handler.mux())
+	f.server.Config.Handler = handler
 	f.server.Config.BaseContext = func(net.Listener) context.Context { return base }
 	f.server.Start()
 	t.Cleanup(func() {
@@ -131,7 +128,7 @@ func newFixture(t *testing.T, opts options) *fixture {
 	return f
 }
 
-func (f *fixture) deps(opts options, au *auth.Auth, pairings *auth.Pairings, origins func() (string, string), log *slog.Logger) Deps {
+func (f *fixture) deps(opts options, au *auth.Auth, pairings *auth.Pairings, origins func() (string, string), log *slog.Logger) server.Deps {
 	pick := opts.pick
 	if pick == nil {
 		pick = func(context.Context) ([]string, error) { return nil, nil }
@@ -140,7 +137,7 @@ func (f *fixture) deps(opts options, au *auth.Auth, pairings *auth.Pairings, ori
 	if pickFolder == nil {
 		pickFolder = func(context.Context) (string, error) { return "", nil }
 	}
-	return Deps{
+	return server.Deps{
 		Config:        config.Config{Name: testHostname, ReceivedDir: f.received},
 		Version:       testVersion,
 		Name:          func() string { return f.hooks.current().Name },
@@ -192,4 +189,10 @@ func (f *fixture) recordOpened(path string) error {
 	defer f.mu.Unlock()
 	f.opened = append(f.opened, path)
 	return nil
+}
+
+func (f *fixture) openedPaths() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.opened...)
 }

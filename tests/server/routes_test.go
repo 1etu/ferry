@@ -1,4 +1,4 @@
-package server
+package server_test
 
 import (
 	"os"
@@ -7,8 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	"gopkg.in/yaml.v3"
+
+	"github.com/1etu/ferry/internal/server"
+	"github.com/1etu/ferry/tests/kit"
 )
 
 const uploadsSubtree = "/api/uploads/"
@@ -16,15 +18,11 @@ const uploadsSubtree = "/api/uploads/"
 func contractRoutes(t *testing.T) []string {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "..", "api", "openapi.yaml"))
-	if err != nil {
-		t.Fatalf("read contract: %v", err)
-	}
+	kit.NoError(t, err, "read contract")
 	var doc struct {
 		Paths map[string]map[string]any `yaml:"paths"`
 	}
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		t.Fatalf("parse contract: %v", err)
-	}
+	kit.NoError(t, yaml.Unmarshal(raw, &doc), "parse contract")
 	contractMethods := []string{"get", "put", "post", "delete", "options", "head", "patch", "trace"}
 	var routes []string
 	for path, item := range doc.Paths {
@@ -45,15 +43,13 @@ func contractRoutes(t *testing.T) []string {
 
 func TestRoutesMatchContractInBothDirections(t *testing.T) {
 	t.Parallel()
-	got := slices.Sorted(slices.Values(Routes()))
-	if diff := cmp.Diff(contractRoutes(t), got); diff != "" {
-		t.Fatalf("routes differ from api/openapi.yaml (-contract +server):\n%s", diff)
-	}
+	got := slices.Sorted(slices.Values(server.Routes()))
+	kit.Equal(t, got, contractRoutes(t))
 }
 
 func TestRoutesAreUnique(t *testing.T) {
 	t.Parallel()
-	routes := Routes()
+	routes := server.Routes()
 	if unique := slices.Compact(slices.Sorted(slices.Values(routes))); len(unique) != len(routes) {
 		t.Fatalf("duplicate patterns in %v", routes)
 	}

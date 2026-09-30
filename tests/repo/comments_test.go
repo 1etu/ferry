@@ -1,9 +1,11 @@
-package app
+package repo_test
 
 import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/1etu/ferry/tests/kit"
 )
 
 func TestRepositoryHasNoComments(t *testing.T) {
@@ -12,10 +14,7 @@ func TestRepositoryHasNoComments(t *testing.T) {
 	if err != nil {
 		t.Skip("node is not installed")
 	}
-	root, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatalf("resolve repository root: %v", err)
-	}
+	root := kit.RepoRoot(t)
 	checker := filepath.Join(root, "tools", "check-comments.mjs")
 	output, err := exec.CommandContext(t.Context(), node, checker, root).CombinedOutput()
 	if err != nil {

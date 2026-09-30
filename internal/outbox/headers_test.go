@@ -36,7 +36,7 @@ func TestServeInlineDispositionAndUnknownType(t *testing.T) {
 	t.Parallel()
 	fx := newFixture(t)
 	f := fx.offer(t, "blob.wmtunknown", []byte("x"))
-	r := contentRequest(t.Context(), f.ID, testDeviceID, nil)
+	r := contentRequest(t, f.ID, nil)
 	r.URL.RawQuery = "disposition=inline"
 	w := httptest.NewRecorder()
 
