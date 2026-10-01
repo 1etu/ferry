@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Coin</title>
+    <style>
+      html, body { margin: 0; background: transparent; }
+      canvas { display: block; }
+    </style>
+    <script type="importmap">
+      { "imports": { "three": "/three/build/three.module.js", "three/addons/": "/three/examples/jsm/" } }
+    </script>
+  </head>
+  <body>
+    <script type="module">
+      import * as THREE from "three";
+      import { SVGLoader } from "three/addons/loaders/SVGLoader.js";
+
+      const params = new URLSearchParams(location.search);
+      const size = Number(params.get("size") ?? 1440);
+      const yaw = THREE.MathUtils.degToRad(Number(params.get("yaw") ?? 24));
+      const pitch = THREE.MathUtils.degToRad(Number(params.get("pitch") ?? -10));
+      const roll = THREE.MathUtils.degToRad(Number(params.get("roll") ?? -3));
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+      renderer.setPixelRatio(1);
+      renderer.setSize(size, size);
+      renderer.setClearColor(0x000000, 0);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = Number(params.get("exposure") ?? 1);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      document.body.append(renderer.domElement);
+
+      function softbox(width, height, intensity, direction, distance = 9) {
+        const canvas = document.createElement("canvas");
+        canvas.width = canvas.height = 128;
+        const context = canvas.getContext("2d");
+        const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64);
+        gradient.addColorStop(0, "#fff");
+        gradient.addColorStop(0.55, "#999");
+        gradient.addColorStop(1, "#000");
+        context.fillStyle = gradient;
+        context.fillRect(0, 0, 128, 128);
+        const map = new THREE.CanvasTexture(canvas);
+        map.colorSpace = THREE.SRGBColorSpace;
+        const material = new THREE.MeshBasicMaterial({ map, color: new THREE.Color(intensity, intensity, intensity), side: THREE.DoubleSide });
+        return place(new THREE.Mesh(new THREE.PlaneGeometry(width, height), material), direction, distance);
+      }
+
+      function strip(width, height, intensity, direction, distance = 9) {
+        const material = new THREE.MeshBasicMaterial({ color: new THREE.Color(intensity, intensity, intensity), side: THREE.DoubleSide });
+        return place(new THREE.Mesh(new THREE.PlaneGeometry(width, height), material), direction, distance);
+      }
+
+      function place(mesh, direction, distance) {
+        const unit = new THREE.Vector3(...direction).normalize();
+        mesh.position.copy(unit.multiplyScalar(distance));
+        mesh.lookAt(0, 0, 0);
+        return mesh;
+      }
+
+      function dome(top, bottom) {
+        const geometry = new THREE.SphereGeometry(30, 64, 32);
+        const colors = [];
+        const position = geometry.attributes.position;
+        for (let i = 0; i < position.count; i++) {
+          const t = THREE.MathUtils.smoothstep(position.getY(i) / 30, -0.3, 1);
+          const value = bottom + (top - bottom) * t;
+          colors.push(value, value, value);
+        }
+        geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+        return new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide }));
+      }
+
+      function studio() {
+        const scene = new THREE.Scene();
+        scene.add(dome(Number(params.get("dome") ?? 0.03), 0));
+        scene.add(softbox(7, 7, Number(params.get("key") ?? 1.3), [0.6, 0.53, 0.62]));
+        scene.add(strip(1.8, 16, Number(params.get("rim") ?? 40), [-0.8, 0.05, -0.6]));
+        scene.add(strip(0.5, 14, Number(params.get("kick") ?? 12), [0.9, 0.1, -0.45]));
+        scene.add(softbox(14, 4, Number(params.get("top") ?? 0.5), [-0.2, 1, 0.1]));
+        return scene;
+      }
+
+      function frontProfile() {
+        const field = 0.06;
+        const rim = 0.115;
+        const flatEnd = 0.95;
+        const corner = 0.035;
+        const smooth = (a, b, x) => {
+          const t = Math.min(Math.max((x - a) / (b - a), 0), 1);
+          return t * t * (3 - 2 * t);
+        };
+        const points = [];
+        for (let r = 0; r <= flatEnd + 1e-6; r += 0.004) points.push(new THREE.Vector2(r, field + (rim - field) * smooth(0.79, 0.865, r)));
+        for (let i = 1; i <= 16; i++) {
+          const angle = (Math.PI / 2) * (1 - i / 16);
+          points.push(new THREE.Vector2(flatEnd + corner * Math.cos(angle), rim - corner + corner * Math.sin(angle)));
+        }
+        const edge = flatEnd + corner;
+        for (let z = rim - corner - 0.01; z > 0.0; z -= 0.01) points.push(new THREE.Vector2(edge, z));
+        points.push(new THREE.Vector2(edge, 0));
+        return points;
+      }
+
+      function coinProfile() {
+        const front = frontProfile();
+        const back = front.map((p) => new THREE.Vector2(p.x, -p.y));
+        return [...back, ...front.slice(0, -1).reverse()];
+      }
+
+      function coinGeometry() {
+        const lathe = new THREE.LatheGeometry(coinProfile(), 384);
+        lathe.rotateX(Math.PI / 2);
+        lathe.computeVertexNormals();
+        return lathe;
+      }
+
+      async function markGeometry() {
+        const text = await (await fetch("/logo/mark.svg")).text();
+        const data = new SVGLoader().parse(text);
+        const shapes = data.paths.flatMap((path) => SVGLoader.createShapes(path));
+        const scale = 0.0236;
+        const flipped = shapes.map((shape) => {
+          const points = shape.extractPoints(160).shape.map((p) => new THREE.Vector2((p.x - 22) * scale, (12 - p.y) * scale));
+          return new THREE.Shape(points);
+        });
+        const geometry = new THREE.ExtrudeGeometry(flipped, {
+          depth: 0.02,
+          bevelEnabled: true,
+          bevelThickness: 0.03,
+          bevelSize: 0.022,
+          bevelOffset: -0.022,
+          bevelSegments: 8,
+          curveSegments: 160,
+        });
+        geometry.computeVertexNormals();
+        return geometry;
+      }
+
+      function grain(resolution) {
+        const canvas = document.createElement("canvas");
+        canvas.width = canvas.height = resolution;
+        const context = canvas.getContext("2d");
+        const image = context.createImageData(resolution, resolution);
+        for (let y = 0; y < resolution; y++) {
+          for (let x = 0; x < resolution; x++) {
+            const dx = x - resolution / 2;
+            const dy = y - resolution / 2;
+            const ring = Math.sin(Math.hypot(dx, dy) * 1.7) * 0.5 + 0.5;
+            const value = 150 + ring * 22 + (Math.random() - 0.5) * 8;
+            const index = (y * resolution + x) * 4;
+            image.data[index] = image.data[index + 1] = image.data[index + 2] = value;
+            image.data[index + 3] = 255;
+          }
+        }
+        context.putImageData(image, 0, 0);
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.NoColorSpace;
+        return texture;
+      }
+
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      const environment = pmrem.fromScene(studio(), 0.015).texture;
+
+      const scene = new THREE.Scene();
+      scene.environment = environment;
+
+      const field = new THREE.MeshPhysicalMaterial({
+        color: new THREE.Color(params.get("fieldTone") ?? "#43464b"),
+        metalness: 1,
+        roughness: Number(params.get("field") ?? 0.36),
+        roughnessMap: grain(1024),
+      });
+      const relief = new THREE.MeshPhysicalMaterial({
+        color: new THREE.Color(params.get("reliefTone") ?? "#8a8e95"),
+        metalness: 1,
+        roughness: Number(params.get("relief") ?? 0.2),
+      });
+
+      const coin = new THREE.Group();
+      const body = coinGeometry();
+      body.computeBoundingBox();
+      const uv = body.attributes.uv;
+      const position = body.attributes.position;
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, position.getX(i) / 2 + 0.5, position.getY(i) / 2 + 0.5);
+      coin.add(new THREE.Mesh(body, field));
+      const mark = new THREE.Mesh(await markGeometry(), relief);
+      mark.position.z = 0.06;
+      coin.add(mark);
+      coin.rotation.set(pitch, yaw, roll, "YXZ");
+      scene.add(coin);
+
+      const camera = new THREE.PerspectiveCamera(18, 1, 0.1, 100);
+      camera.position.set(0, 0, 7.4);
+      camera.lookAt(0, 0, 0);
+
+      renderer.render(scene, camera);
+      window.coinReady = true;
+    </script>
+  </body>
