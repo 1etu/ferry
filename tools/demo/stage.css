@@ -1,0 +1,238 @@
+@font-face {
+  font-family: "Inter Demo";
+  font-weight: 100 900;
+  src: url("/stage/InterVariable.woff2") format("woff2");
+}
+
+:root {
+  --caption: #1e1e1e;
+  --caption-ink: #ffffff;
+}
+
+html,
+body {
+  margin: 0;
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  background: #000;
+}
+
+#world {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 1920px;
+  height: 1080px;
+  transform-origin: 0 0;
+}
+
+#window {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--caption);
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.1),
+    0 28px 70px rgb(0 0 0 / 0.55),
+    0 8px 24px rgb(0 0 0 / 0.4);
+}
+
+.caption {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: 32px;
+  padding-inline-start: 12px;
+  background: var(--caption);
+  color: var(--caption-ink);
+  font: 400 12px/1 "Segoe UI Variable Text", "Segoe UI", sans-serif;
+}
+
+.caption-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin-inline-end: 10px;
+}
+
+.caption-title {
+  flex: 1;
+}
+
+.caption-buttons {
+  display: flex;
+  align-self: stretch;
+}
+
+.caption-button {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  font: 400 10px/1 "Segoe Fluent Icons", "Segoe MDL2 Assets", sans-serif;
+}
+
+#window iframe,
+#phone iframe {
+  display: block;
+  border: 0;
+  background: #000;
+}
+
+#phone {
+  position: absolute;
+  transform-origin: 0 0;
+}
+
+.screen {
+  position: absolute;
+  overflow: hidden;
+  background: #000;
+}
+
+.screen iframe {
+  transform-origin: 0 0;
+}
+
+.status-bar {
+  position: absolute;
+  inset: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 54px;
+  padding: 4px 30px 0 46px;
+  box-sizing: border-box;
+  color: #fff;
+  pointer-events: none;
+}
+
+.status-time {
+  font: 600 17px/1 "Inter Demo", sans-serif;
+  letter-spacing: -0.02em;
+}
+
+.status-icons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-icons svg {
+  display: block;
+  fill: currentColor;
+}
+
+.status-signal {
+  width: 18px;
+  height: 12px;
+}
+
+.status-wifi {
+  width: 16px;
+  height: 12px;
+}
+
+.status-battery {
+  width: 27px;
+  height: 13px;
+}
+
+.home-indicator {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  width: 134px;
+  height: 5px;
+  margin-left: -67px;
+  border-radius: 3px;
+  background: #fff;
+  pointer-events: none;
+}
+
+.frame {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.frame.placeholder {
+  box-sizing: border-box;
+  border: 18px solid #000;
+  border-radius: 73px;
+}
+
+.frame.placeholder::before {
+  content: "";
+  position: absolute;
+  inset: -18px;
+  border: 6px solid #303035;
+  border-radius: 73px;
+  box-shadow:
+    0 0 0 1px #56565c,
+    inset 0 0 0 1px #0a0a0b;
+}
+
+.frame.placeholder::after {
+  content: "";
+  position: absolute;
+  top: 11px;
+  left: 50%;
+  width: 126px;
+  height: 37px;
+  margin-left: -63px;
+  border-radius: 19px;
+  background: #000;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.07);
+}
+
+.frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+#touch {
+  position: absolute;
+  width: 46px;
+  height: 46px;
+  margin: -23px 0 0 -23px;
+  border-radius: 50%;
+  background: rgb(142 142 147 / 0.55);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.3),
+    0 0 0 1px rgb(0 0 0 / 0.12);
+  opacity: 0;
+  pointer-events: none;
+}
+
+#cursor {
+  position: absolute;
+  width: 18px;
+  height: 25px;
+  margin: -2px 0 0 -2px;
+  overflow: visible;
+  transform-origin: 2px 2px;
+  filter: drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.5));
+  pointer-events: none;
+}
+
+#ripple {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  margin: -20px 0 0 -20px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.85);
+  opacity: 0;
+  pointer-events: none;
+}
+
+#fade {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+}

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Ferry demo stage</title>
+    <link rel="stylesheet" href="/stage/stage.css">
+  </head>
+  <body>
+    <div id="world">
+      <section id="window">
+        <header class="caption">
+          <img class="caption-icon" src="/logo/icon.svg" width="16" height="16" alt="">
+          <span class="caption-title">Ferry</span>
+          <span class="caption-buttons">
+            <span class="caption-button">&#xE921;</span>
+            <span class="caption-button">&#xE922;</span>
+            <span class="caption-button">&#xE8BB;</span>
+          </span>
+        </header>
+        <iframe id="pc" name="pc" title="Ferry on the PC"></iframe>
+      </section>
+      <section id="phone">
+        <div class="screen">
+          <iframe id="handset" name="phone" title="Ferry on the iPhone"></iframe>
+          <div class="status-bar">
+            <span class="status-time">9:41</span>
+            <span class="status-icons">
+              <svg class="status-signal" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="0.8"/><rect x="5" y="5.5" width="3" height="6.5" rx="0.8"/><rect x="10" y="3" width="3" height="9" rx="0.8"/><rect x="15" y="0" width="3" height="12" rx="0.8"/></svg>
+              <svg class="status-wifi" viewBox="0 0 16 12"><path d="M8 2.6c2.3 0 4.4.9 6 2.4l1.1-1.2A10.3 10.3 0 0 0 8 1C5.3 1 2.8 2 .9 3.8L2 5c1.6-1.5 3.7-2.4 6-2.4Zm0 3.4c1.4 0 2.6.5 3.6 1.4l1.1-1.2A6.8 6.8 0 0 0 8 4.4c-1.8 0-3.5.7-4.7 1.8l1.1 1.2C5.4 6.5 6.6 6 8 6Zm0 3.3c.6 0 1.1.2 1.5.6L8 11.5 6.5 9.9c.4-.4.9-.6 1.5-.6Z"/></svg>
+              <svg class="status-battery" viewBox="0 0 28 13"><rect x="0.5" y="0.5" width="24" height="12" rx="3.8" fill="none" stroke="currentColor" stroke-opacity="0.4"/><rect x="2" y="2" width="21" height="9" rx="2.4"/><path d="M26 4.5v4c.8-.3 1.3-1.1 1.3-2s-.5-1.7-1.3-2Z" fill-opacity="0.4"/></svg>
+            </span>
+          </div>
+          <div class="home-indicator"></div>
+          <div id="touch"></div>
+        </div>
+        <div class="frame"></div>
+      </section>
+      <div id="ripple"></div>
+      <svg id="cursor" viewBox="-2 -2 18 25" aria-hidden="true">
+        <path d="M0 0v17.2l4.1-3.9 2.7 6.3 3-1.3-2.7-6.2H13Z" fill="#000" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div id="fade"></div>
+    <script type="module" src="/stage/stage.js"></script>
+  </body>
+</html>
