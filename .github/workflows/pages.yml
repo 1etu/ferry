@@ -1,0 +1,47 @@
+name: Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "site/**"
+      - "assets/logo/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy the site
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Copy the logo into the site
+        run: |
+          mkdir -p site/logo
+          cp assets/logo/*.svg site/logo/
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
