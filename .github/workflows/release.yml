@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    name: Build, sign and publish
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          package_json_file: web/package.json
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Install web dependencies
+        run: pnpm -C web install --frozen-lockfile
+
+      - name: Build web
+        run: pnpm -C web build
+
+      - name: Build Ferry.exe
+        env:
+          CGO_ENABLED: "0"
+        run: go build -trimpath -ldflags "-s -w -H windowsgui -X main.version=${GITHUB_REF_NAME#v}" -o Ferry.exe ./cmd/ferry
+
+      - name: Sign the update manifest
+        env:
+          FERRY_SIGNING_KEY: ${{ secrets.FERRY_SIGNING_KEY }}
+        run: go run ./tools/release/sign -version "${GITHUB_REF_NAME#v}" -key-env FERRY_SIGNING_KEY -asset Ferry.exe
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "Ferry ${GITHUB_REF_NAME#v}" --generate-notes Ferry.exe manifest.json manifest.sig SHA256SUMS
