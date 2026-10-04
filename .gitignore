@@ -1,3 +1,10 @@
+.claude/
+CLAUDE.md
+docs/
+tools/hooks/
 bin/
 web/node_modules/
 internal/webui/dist/
+web/playwright-report/
+web/test-results/
+*.log
