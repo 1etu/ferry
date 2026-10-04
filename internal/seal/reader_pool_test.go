@@ -45,6 +45,9 @@ func TestReaderTakesItsFrameBufferOnTheFirstReadAndReturnsItAtTheEnd(t *testing.
 }
 
 func TestReaderReusesFrameBuffersAcrossReaders(t *testing.T) {
+	if raceDetectorOn {
+		t.Skip("the race detector drops pooled objects at random")
+	}
 	f := newReaderFixture(t, 2*FrameSize)
 	body := concat(f.frames)
 	drain := func() {
