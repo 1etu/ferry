@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 
 	"github.com/1etu/ferry/internal/platform"
@@ -28,7 +29,7 @@ type fixture struct {
 
 func newFixture(t *testing.T) fixture {
 	t.Helper()
-	root := t.TempDir()
+	root := longPath(t, t.TempDir())
 	roaming := filepath.Join(root, "Roaming", "Microsoft", "Windows")
 	keyPath := fmt.Sprintf(`Software\FerryTest\install-%d`, time.Now().UnixNano())
 	t.Cleanup(func() { deleteTestKeys(t, keyPath) })
@@ -297,4 +298,18 @@ func deleteTestKeys(t *testing.T, keyPath string) {
 			t.Errorf("delete test key parent: %v", err)
 		}
 	}
+}
+
+func longPath(t *testing.T, path string) string {
+	t.Helper()
+	short, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]uint16, windows.MAX_LONG_PATH)
+	n, err := windows.GetLongPathName(short, &buf[0], uint32(len(buf)))
+	if err != nil {
+		t.Fatalf("resolve long path of %s: %v", path, err)
+	}
+	return windows.UTF16ToString(buf[:n])
 }
