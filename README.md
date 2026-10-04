@@ -1,10 +1,10 @@
-<p align="center"><img src="assets/logo/icon.svg" width="96" alt="Ferry"></p>
-
 # Ferry
 
 Files between your iPhone and your PC, over your own Wi-Fi.
 
 [![CI](https://github.com/1etu/ferry/actions/workflows/ci.yml/badge.svg)](https://github.com/1etu/ferry/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/1etu/ferry)](https://github.com/1etu/ferry/releases/latest) [![License](https://img.shields.io/badge/license-MIT-black)](LICENSE)
+
+[![Ferry pairs an iPhone, sends three photos to the PC and gets a file back](assets/demo.webp)](https://1etu.github.io/ferry/)
 
 ## Contents
 
