@@ -12,6 +12,8 @@ Files between your iPhone and your PC, over your own Wi-Fi.
 - [Pair your iPhone](#pair-your-iphone)
 - [Send and receive](#send-and-receive)
 - [Originals](#originals)
+- [Speed](#speed)
+- [Compared to others](#compared-to-others)
 - [Security](#security)
 - [Settings](#settings)
 - [Updates](#updates)
@@ -49,6 +51,57 @@ Ferry never recompresses anything: what the iPhone sends is what the PC writes. 
 - Location is removed unless you turn on **Location** in the same **Options** menu.
 - **Choose File** (the Files app) sends files byte for byte.
 - For JPEG everywhere instead, set Settings › Camera › Formats › **Most Compatible** on the iPhone.
+
+## Speed
+
+Your Wi-Fi is the limit, not Ferry. Measured on one PC with no network in between, Ferry encrypts, verifies and saves files several times faster than home Wi-Fi can carry them.
+
+```text
+One 2 GB video, iPhone to PC                                    MB/s
+
+Ferry, measured with no network   ████████████████████████████  689
+Wi-Fi 6, close to the router      ███                           ~80
+Wi-Fi 5                           ██                            ~45
+
+
+500 photos, 3 MB each                                           photos/s
+
+Ferry, measured with no network   ████████████████████████████  290
+Wi-Fi 6, close to the router      ███                           ~27
+```
+
+Ferry's numbers are medians of repeated runs over loopback with encryption on, measured with `tools/bench`. The Wi-Fi figures are typical real-world throughput, not lab maximums. Downloads from the PC to the phone run at about 2.6 GB/s over loopback.
+
+## Compared to others
+
+| | Ferry | LocalSend | PairDrop | iCloud Drive |
+|---|---|---|---|---|
+| Nothing to install on the iPhone | Yes | No | Yes | Yes |
+| Works without internet | Yes | Yes | No¹ | No |
+| No account | Yes | Yes | Yes | No |
+| Resumes an interrupted transfer | Yes | No | No | Yes |
+| Files never leave your network | Yes | Yes | Usually² | No |
+| Open source | Yes | Yes | Yes | No |
+| Runs on | Windows and iPhone | Most platforms | Any browser | Apple devices and Windows |
+
+¹ Unless you host your own PairDrop server. ² Files go peer to peer over WebRTC, and a relay is used when a direct path fails.
+
+As of October 2026. Spotted something wrong? [Open an issue](https://github.com/1etu/ferry/issues).
+
+**Where Ferry is good**
+
+- No app on the iPhone. Scan one QR code and Safari does the rest.
+- Works with the internet unplugged. Nothing leaves your network.
+- Huge files survive a locked screen and a dropped Wi-Fi.
+- One small exe that installs and updates itself.
+
+**Where it falls short**
+
+- Windows and iPhone only, for now.
+- Files sent from the PC to the phone are not encrypted on your Wi-Fi.
+- Both devices must be on the same network.
+- The exe is unsigned, so Windows asks once before the first run.
+- With Lockdown Mode on, iPhone uploads are much slower.
 
 ## Security
 
