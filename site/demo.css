@@ -1,6 +1,9 @@
 .demo {
   position: relative;
+  flex: 0 1 auto;
   inline-size: min(100%, var(--lede-measure));
+  min-block-size: 0;
+  aspect-ratio: 16 / 9;
   margin-block-start: var(--space-8);
   font-size: var(--lede-size);
 }
@@ -8,8 +11,8 @@
 .demo video {
   display: block;
   inline-size: 100%;
-  block-size: auto;
-  aspect-ratio: 16 / 9;
+  block-size: 100%;
+  object-fit: contain;
   background: var(--system-background);
 }
 

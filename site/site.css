@@ -35,13 +35,10 @@
   --focus-ring-width: 2px;
 
   --ink-muted: #8a8a8a;
-  --coin-size: clamp(200px, 26vw, 360px);
   --lede-size: clamp(24px, 0.9rem + 1.9vw, 36px);
   --lede-measure: 21em;
   --badge-size: 1em;
   --badge-glyph: 0.56em;
-  --float-distance: 6px;
-  --float-ms: 7s;
 }
 
 @supports not (animation-timing-function: linear(0, 1)) {
@@ -65,11 +62,11 @@ html {
 body {
   display: flex;
   flex-direction: column;
-  min-block-size: 100dvh;
+  block-size: 100dvh;
   margin: 0;
   padding-block: calc(var(--safe-top) + var(--space-8)) calc(var(--safe-bottom) + var(--space-6));
   padding-inline: max(var(--margin), var(--safe-left)) max(var(--margin), var(--safe-right));
-  overflow-x: hidden;
+  overflow: hidden;
   background: var(--system-background);
   color: var(--ink-muted);
   font-family: var(--font);
@@ -82,9 +79,11 @@ body {
 
 main {
   display: flex;
+  flex: 1;
   flex-direction: column;
   align-items: center;
-  margin-block: auto;
+  justify-content: center;
+  min-block-size: 0;
 }
 
 h1,
@@ -124,38 +123,8 @@ a:focus-visible {
   outline-offset: 4px;
 }
 
-.coin {
-  --tilt-x: 0deg;
-  --tilt-y: 0deg;
-  inline-size: var(--coin-size);
-  block-size: var(--coin-size);
-  animation: float var(--float-ms) ease-in-out infinite alternate;
-}
-
-.coin picture,
-.coin img {
-  display: block;
-  inline-size: 100%;
-  block-size: 100%;
-}
-
-.coin img {
-  transform: perspective(900px) rotateX(var(--tilt-x)) rotateY(var(--tilt-y));
-  transition: transform var(--spring-smooth-ms) var(--spring-smooth);
-}
-
-@keyframes float {
-  from {
-    transform: translateY(calc(var(--float-distance) * -1));
-  }
-  to {
-    transform: translateY(var(--float-distance));
-  }
-}
-
 .lede {
   max-inline-size: var(--lede-measure);
-  margin-block-start: var(--space-4);
   font-size: var(--lede-size);
   line-height: 1.25;
   text-wrap: balance;
@@ -200,28 +169,50 @@ a:focus-visible {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-2);
-  margin-block-start: clamp(48px, 7vh, 80px);
+  gap: var(--space-3);
+  margin-block-start: var(--space-8);
 }
 
 .download {
   display: inline-flex;
   align-items: center;
-  gap: 0.45em;
-  padding: var(--space-2) var(--space-3);
+  gap: var(--space-3);
+  min-block-size: 56px;
+  padding: 0 var(--space-8) 0 var(--space-6);
+  border-radius: 999px;
+  background: var(--secondary-system-background);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 0 1px rgba(255, 255, 255, 0.1),
+    0 12px 32px rgba(0, 0, 0, 0.8);
   color: var(--label);
   font-size: 18px;
+  font-weight: 500;
   line-height: 1.25;
+  letter-spacing: -0.02em;
+  transition:
+    transform var(--spring-smooth-ms) var(--spring-smooth),
+    background-color var(--spring-smooth-ms) var(--spring-smooth);
+}
+
+.download:hover {
+  transform: translateY(-2px);
+  background: #2c2c2e;
+}
+
+.download:hover,
+.download:focus-visible {
+  text-decoration-line: none;
+}
+
+.download:active {
+  transform: scale(0.96);
 }
 
 .download svg {
-  inline-size: 1em;
-  block-size: 1em;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  inline-size: 20px;
+  block-size: 20px;
+  fill: #ffffff;
 }
 
 .requirements {
@@ -231,7 +222,7 @@ a:focus-visible {
 }
 
 footer {
-  padding-block-start: var(--space-10);
+  padding-block-start: var(--space-4);
   font-size: 12px;
   line-height: 1.4;
   letter-spacing: 0;
@@ -247,18 +238,8 @@ footer a:focus-visible {
     padding-block-start: calc(var(--safe-top) + var(--space-6));
   }
 
-  .lede {
-    margin-block-start: var(--space-3);
+  .get {
+    margin-block-start: var(--space-6);
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .coin {
-    animation: none;
-  }
-
-  .coin img {
-    transform: none;
-    transition: none;
-  }
-}
